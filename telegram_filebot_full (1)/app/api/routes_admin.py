@@ -291,4 +291,6 @@ async def update_settings(data: dict, auth: None = Depends(verify_admin_token)):
     core_config.DOWNLOAD_DOMAIN = updated.get("DOWNLOAD_DOMAIN", core_config.DOWNLOAD_DOMAIN)
     core_config.UPLOAD_DIR = updated.get("UPLOAD_DIR", core_config.UPLOAD_DIR)
     core_config.SUBSCRIPTION_REMINDER_DAYS = int(updated.get("SUBSCRIPTION_REMINDER_DAYS", core_config.SUBSCRIPTION_REMINDER_DAYS))
+    core_config.ADMIN_IDS = {int(uid) for uid in str(updated.get("ADMIN_IDS", "")).split(",") if uid}
+    core_config.REQUIRED_CHANNEL = updated.get("REQUIRED_CHANNEL", core_config.REQUIRED_CHANNEL)
     return {"detail": "updated", "settings": updated}
