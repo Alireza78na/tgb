@@ -8,6 +8,11 @@ class FileCreate(BaseModel):
     is_from_link: Optional[bool] = False
     original_link: Optional[str] = None
 
+class FileLinkCreate(BaseModel):
+    """Schema for creating a file from a remote URL."""
+    url: str
+    file_name: Optional[str] = None
+
 class FileOut(BaseModel):
     id: str
     original_file_name: str

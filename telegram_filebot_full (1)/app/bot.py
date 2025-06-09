@@ -60,10 +60,71 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text("❌ خطا در ارتباط با سرور.")
 
+
+async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send list of user's files."""
+    headers = {"X-User-Id": str(update.effective_user.id)}
+    try:
+        response = requests.get(f"{API_BASE_URL}/file/list", headers=headers)
+        if response.status_code == 200:
+            files = response.json()
+            if not files:
+                await update.message.reply_text("📂 لیست فایل‌های شما خالی است.")
+            else:
+                msg = "\n".join(f"{f['id']} - {f['original_file_name']}" for f in files)
+                await update.message.reply_text(msg)
+        else:
+            await update.message.reply_text("⚠️ خطا در دریافت لیست فایل‌ها.")
+    except Exception:
+        await update.message.reply_text("❌ ارتباط با سرور برقرار نشد.")
+
+
+async def delete_file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete a file by its ID."""
+    if not context.args:
+        await update.message.reply_text("استفاده: /delete <file_id>")
+        return
+    file_id = context.args[0]
+    headers = {"X-User-Id": str(update.effective_user.id)}
+    try:
+        response = requests.delete(f"{API_BASE_URL}/file/delete/{file_id}", headers=headers)
+        if response.status_code == 200:
+            await update.message.reply_text("✅ فایل حذف شد.")
+        else:
+            await update.message.reply_text("⚠️ خطا در حذف فایل.")
+    except Exception:
+        await update.message.reply_text("❌ ارتباط با سرور برقرار نشد.")
+
+
+async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Download a file from a URL and save it."""
+    if not context.args:
+        await update.message.reply_text("استفاده: /uploadlink <URL>")
+        return
+    url = context.args[0]
+    file_name = url.split("/")[-1]
+    payload = {
+        "url": url,
+        "file_name": file_name
+    }
+    headers = {"X-User-Id": str(update.effective_user.id)}
+    try:
+        response = requests.post(f"{API_BASE_URL}/file/upload_link", json=payload, headers=headers)
+        if response.status_code == 200:
+            file_info = response.json()
+            await update.message.reply_text(f"✅ لینک دانلود فایل: {file_info['direct_download_url']}")
+        else:
+            await update.message.reply_text("⚠️ خطا در دانلود فایل.")
+    except Exception:
+        await update.message.reply_text("❌ ارتباط با سرور برقرار نشد.")
+
 # اجرای ربات
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("files", list_files))
+    app.add_handler(CommandHandler("delete", delete_file_cmd))
+    app.add_handler(CommandHandler("uploadlink", upload_link))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.add_handler(MessageHandler(filters.Video.ALL | filters.Audio.ALL | filters.PHOTO, handle_file))
     print("🤖 Bot is running...")
