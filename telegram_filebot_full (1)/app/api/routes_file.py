@@ -5,11 +5,17 @@ from app.schemas.file import FileCreate, FileOut, FileLinkCreate
 from app.models.file import File
 from app.core.subscription_guard import check_active_subscription, check_user_limits
 from app.services.file_service import save_file_metadata
-from app.services.download_worker import download_file_from_url
+from app.services.download_worker import (
+    download_file_from_url,
+    download_file_from_telegram,
+    is_blocked_extension,
+    is_illegal_url,
+)
 from sqlalchemy.future import select
 import uuid
 from datetime import datetime
 import os
+from app.core import config
 
 router = APIRouter()
 
@@ -24,9 +30,22 @@ async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession 
     if not user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="X-User-Id header missing")
 
-    # Generate storage path and download link
-    storage_path = save_file_metadata(file_data.original_file_name)
-    direct_download_url = f"https://yourdomain.com/downloads/{uuid.uuid4().hex}"
+    if is_blocked_extension(file_data.original_file_name):
+        raise HTTPException(status_code=400, detail="نوع فایل مجاز نیست")
+
+    if file_data.telegram_file_id:
+        storage_path = download_file_from_telegram(
+            file_data.telegram_file_id,
+            file_data.original_file_name,
+        )
+        if not storage_path:
+            raise HTTPException(status_code=500, detail="Download failed")
+    else:
+        storage_path = save_file_metadata(file_data.original_file_name)
+
+    direct_download_url = (
+        f"https://{config.DOWNLOAD_DOMAIN}/downloads/{uuid.uuid4().hex}"
+    )
 
     # Subscription and quota checks
     await check_active_subscription(user_id)
@@ -56,7 +75,12 @@ async def upload_from_link(data: FileLinkCreate, request: Request, db: AsyncSess
     if not user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="X-User-Id header missing")
 
+    if is_illegal_url(data.url):
+        raise HTTPException(status_code=400, detail="لینک غیرمجاز است")
+
     file_name = data.file_name or data.url.split("/")[-1]
+    if is_blocked_extension(file_name):
+        raise HTTPException(status_code=400, detail="نوع فایل مجاز نیست")
     path = download_file_from_url(data.url, file_name)
     if not path:
         raise HTTPException(status_code=500, detail="Download failed")
@@ -66,7 +90,9 @@ async def upload_from_link(data: FileLinkCreate, request: Request, db: AsyncSess
     await check_active_subscription(user_id)
     await check_user_limits(user_id, file_size)
 
-    direct_download_url = f"https://yourdomain.com/downloads/{uuid.uuid4().hex}"
+    direct_download_url = (
+        f"https://{config.DOWNLOAD_DOMAIN}/downloads/{uuid.uuid4().hex}"
+    )
 
     new_file = File(
         id=str(uuid.uuid4()),

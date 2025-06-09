@@ -1,8 +1,9 @@
 import os
 from datetime import datetime
 from uuid import uuid4
+from app.core import config
 
-UPLOAD_DIR = "./uploads"
+UPLOAD_DIR = config.UPLOAD_DIR
 
 def save_file_metadata(filename: str) -> str:
     now = datetime.utcnow()
