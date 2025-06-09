@@ -17,3 +17,29 @@ class UserSubscriptionOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class SubscriptionPlanCreate(BaseModel):
+    name: str
+    max_storage_mb: Optional[int] = None
+    max_files: Optional[int] = None
+    expiry_days: Optional[int] = None
+    price: Optional[float] = None
+    is_active: bool = True
+
+
+class SubscriptionPlanUpdate(SubscriptionPlanCreate):
+    pass
+
+
+class SubscriptionPlanOut(BaseModel):
+    id: str
+    name: str
+    max_storage_mb: Optional[int]
+    max_files: Optional[int]
+    expiry_days: Optional[int]
+    price: Optional[float]
+    is_active: bool
+
+    class Config:
+        orm_mode = True
