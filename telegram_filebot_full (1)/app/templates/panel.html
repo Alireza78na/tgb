@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Panel</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<h2>Server Metrics</h2>
+<canvas id="cpuChart" width="400" height="100"></canvas>
+<canvas id="memChart" width="400" height="100"></canvas>
+<canvas id="netChart" width="400" height="100"></canvas>
+<script>
+let cpuData = [];
+let memData = [];
+const cpuChart = new Chart(document.getElementById('cpuChart').getContext('2d'), {
+    type: 'line',
+    data: {labels: [], datasets: [{label: 'CPU %', data: []}]},
+});
+const memChart = new Chart(document.getElementById('memChart').getContext('2d'), {
+    type: 'line',
+    data: {labels: [], datasets: [{label: 'Memory %', data: []}]},
+});
+const netChart = new Chart(document.getElementById('netChart').getContext('2d'), {
+    type: 'line',
+    data: {labels: [], datasets: [{label: 'Net Sent', data: []},{label:'Net Recv',data: []}]},
+});
+async function fetchMetrics() {
+    const resp = await fetch('/admin/metrics', {headers: {'X-Admin-Token': 'SuperSecretAdminToken123'}});
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const t = new Date().toLocaleTimeString();
+    cpuChart.data.labels.push(t); cpuChart.data.datasets[0].data.push(data.cpu);
+    memChart.data.labels.push(t); memChart.data.datasets[0].data.push(data.memory);
+    netChart.data.labels.push(t);
+    netChart.data.datasets[0].data.push(data.net_sent);
+    netChart.data.datasets[1].data.push(data.net_recv);
+    cpuChart.update(); memChart.update();
+    netChart.update();
+}
+setInterval(fetchMetrics, 3000);
+</script>
+<h2>Settings</h2>
+<form id="settingsForm">
+    <label>BOT_TOKEN <input name="BOT_TOKEN" value="{{settings['BOT_TOKEN']}}"></label><br>
+    <label>DOWNLOAD_DOMAIN <input name="DOWNLOAD_DOMAIN" value="{{settings['DOWNLOAD_DOMAIN']}}"></label><br>
+    <label>UPLOAD_DIR <input name="UPLOAD_DIR" value="{{settings['UPLOAD_DIR']}}"></label><br>
+    <label>SUBSCRIPTION_REMINDER_DAYS <input name="SUBSCRIPTION_REMINDER_DAYS" type="number" value="{{settings['SUBSCRIPTION_REMINDER_DAYS']}}"></label><br>
+    <button type="submit">Save</button>
+</form>
+<script>
+document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {};
+    formData.forEach((v,k)=>data[k]=v);
+    await fetch('/admin/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json','X-Admin-Token': 'SuperSecretAdminToken123'},
+        body: JSON.stringify(data)
+    });
+});
+</script>
+</body>
+</html>

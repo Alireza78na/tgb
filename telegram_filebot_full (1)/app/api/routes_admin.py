@@ -19,8 +19,14 @@ from typing import List
 
 import uuid
 from datetime import datetime
+import psutil
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from app.core.settings_manager import SettingsManager
+from app.core import config as core_config
 
 router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
 
 async def get_db():
     async with async_session() as session:
@@ -258,3 +264,31 @@ async def broadcast(message: str, db: AsyncSession = Depends(get_db), auth: None
         except Exception:
             pass
     return {"sent": len(ids)}
+
+
+@router.get("/metrics")
+async def get_metrics(auth: None = Depends(verify_admin_token)):
+    data = {
+        "cpu": psutil.cpu_percent(),
+        "memory": psutil.virtual_memory().percent,
+        "disk": psutil.disk_usage("/").percent,
+        "net_sent": psutil.net_io_counters().bytes_sent,
+        "net_recv": psutil.net_io_counters().bytes_recv,
+    }
+    return JSONResponse(data)
+
+
+@router.get("/panel", response_class=HTMLResponse)
+async def admin_panel(request: Request, auth: None = Depends(verify_admin_token)):
+    settings = SettingsManager.load()
+    return templates.TemplateResponse("panel.html", {"request": request, "settings": settings})
+
+
+@router.post("/settings")
+async def update_settings(data: dict, auth: None = Depends(verify_admin_token)):
+    updated = SettingsManager.update(data)
+    core_config.BOT_TOKEN = updated.get("BOT_TOKEN", core_config.BOT_TOKEN)
+    core_config.DOWNLOAD_DOMAIN = updated.get("DOWNLOAD_DOMAIN", core_config.DOWNLOAD_DOMAIN)
+    core_config.UPLOAD_DIR = updated.get("UPLOAD_DIR", core_config.UPLOAD_DIR)
+    core_config.SUBSCRIPTION_REMINDER_DAYS = int(updated.get("SUBSCRIPTION_REMINDER_DAYS", core_config.SUBSCRIPTION_REMINDER_DAYS))
+    return {"detail": "updated", "settings": updated}

@@ -1,0 +1,6 @@
+{
+  "BOT_TOKEN": "YOUR_BOT_TOKEN",
+  "DOWNLOAD_DOMAIN": "yourdomain.com",
+  "UPLOAD_DIR": "./uploads",
+  "SUBSCRIPTION_REMINDER_DAYS": 3
+}

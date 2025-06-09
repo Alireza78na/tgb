@@ -6,3 +6,5 @@ pydantic
 python-telegram-bot==20.3
 requests
 aiofiles
+psutil
+jinja2
