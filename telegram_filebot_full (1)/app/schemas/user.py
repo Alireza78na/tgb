@@ -12,6 +12,7 @@ class UserOut(BaseModel):
     username: Optional[str]
     full_name: Optional[str]
     is_admin: bool
+    is_blocked: bool
 
     class Config:
         orm_mode = True

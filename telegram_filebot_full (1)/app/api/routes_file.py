@@ -8,6 +8,7 @@ from app.core.subscription_guard import (
     check_active_subscription,
     check_user_limits,
 )
+from app.core.user_guard import ensure_not_blocked
 from app.services.file_service import save_file_metadata
 from app.services.download_worker import (
     download_file_from_url,
@@ -35,6 +36,14 @@ async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession 
     user_id = request.headers.get("X-User-Id")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="X-User-Id header missing")
+
+    await ensure_not_blocked(user_id)
+
+    await ensure_not_blocked(user_id)
+
+    await ensure_not_blocked(user_id)
+
+    await ensure_not_blocked(user_id)
 
     if is_blocked_extension(file_data.original_file_name):
         raise HTTPException(status_code=400, detail="نوع فایل مجاز نیست")
@@ -170,6 +179,10 @@ async def delete_bulk(file_ids: List[str], request: Request, db: AsyncSession = 
     user_id = request.headers.get("X-User-Id")
     if not user_id:
         raise HTTPException(status_code=400, detail="X-User-Id header missing")
+
+    await ensure_not_blocked(user_id)
+
+    await ensure_not_blocked(user_id)
     result = await db.execute(select(File).where(File.id.in_(file_ids)))
     files = result.scalars().all()
     deleted = 0
@@ -192,6 +205,8 @@ async def regenerate_link(file_id: str, request: Request, db: AsyncSession = Dep
     user_id = request.headers.get("X-User-Id")
     if not user_id:
         raise HTTPException(status_code=400, detail="X-User-Id header missing")
+
+    await ensure_not_blocked(user_id)
 
     result = await db.execute(select(File).where(File.id == file_id))
     file = result.scalars().first()

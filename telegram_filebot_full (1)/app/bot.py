@@ -14,6 +14,8 @@ import requests
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+ADMIN_IDS = {int(uid) for uid in os.getenv("ADMIN_IDS", "").split(",") if uid}
+BOT_PAUSED = False
 
 
 @dataclass
@@ -28,6 +30,16 @@ from collections import defaultdict
 MAX_CONCURRENT_TASKS = 5
 active_downloads: dict[int, list[DownloadTask]] = defaultdict(list)
 
+
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+
+def bot_paused(update: Update) -> bool:
+    if BOT_PAUSED and not is_admin(update.effective_user.id):
+        return True
+    return False
+
 # Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -36,6 +48,9 @@ logging.basicConfig(
 
 # ثبت کاربر
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if bot_paused(update):
+        await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
     user_data = {
         "telegram_id": update.effective_user.id,
         "username": update.effective_user.username,
@@ -56,6 +71,9 @@ async def my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # هندل فایل‌ها
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if bot_paused(update):
+        await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
     file = update.message.document or update.message.video or update.message.audio or update.message.photo
     if not file:
         await update.message.reply_text("❌ فایل نامعتبر است.")
@@ -100,6 +118,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send list of user's files."""
+    if bot_paused(update):
+        await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
     headers = {"X-User-Id": str(update.effective_user.id)}
     try:
         response = requests.get(f"{API_BASE_URL}/file/list", headers=headers)
@@ -128,6 +149,9 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def delete_file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Delete one or multiple files."""
+    if bot_paused(update):
+        await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
     if not context.args:
         await update.message.reply_text("استفاده: /delete <id1> <id2> ... یا /delete all")
         return
@@ -180,6 +204,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Download a file from a URL and save it."""
+    if bot_paused(update):
+        await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
     if not context.args:
         await update.message.reply_text("استفاده: /uploadlink <URL>")
         return
@@ -238,6 +265,9 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if bot_paused(update):
+        await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
     headers = {"X-User-Id": str(update.effective_user.id)}
     try:
         resp = requests.get(f"{API_BASE_URL}/user/subscription", headers=headers)
@@ -250,6 +280,43 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         await update.message.reply_text("❌ ارتباط با سرور برقرار نشد.")
 
+
+async def pause_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    global BOT_PAUSED
+    BOT_PAUSED = True
+    await update.message.reply_text("✅ Bot paused")
+
+
+async def resume_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    global BOT_PAUSED
+    BOT_PAUSED = False
+    await update.message.reply_text("✅ Bot resumed")
+
+
+async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id) or not context.args:
+        return
+    message = " ".join(context.args)
+    await update.message.reply_text("در حال ارسال...")
+    requests.post(
+        f"{API_BASE_URL}/admin/broadcast",
+        params={"message": message},
+        headers={"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")},
+    )
+
+
+async def cancel_all_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    for tasks in active_downloads.values():
+        for t in tasks:
+            t.cancel = True
+    await update.message.reply_text("تمام پردازش‌ها لغو شد")
+
 # اجرای ربات
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -260,6 +327,10 @@ def main():
     app.add_handler(CommandHandler("deleteall", lambda u, c: delete_file_cmd(u, c)))
     app.add_handler(CommandHandler("uploadlink", upload_link))
     app.add_handler(CommandHandler("mysub", my_subscription))
+    app.add_handler(CommandHandler("pausebot", pause_bot))
+    app.add_handler(CommandHandler("resumebot", resume_bot))
+    app.add_handler(CommandHandler("broadcast", broadcast_cmd))
+    app.add_handler(CommandHandler("cancelall", cancel_all_cmd))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.add_handler(MessageHandler(filters.Video.ALL | filters.Audio.ALL | filters.PHOTO, handle_file))
     app.add_handler(CallbackQueryHandler(button_handler))
