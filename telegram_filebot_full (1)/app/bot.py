@@ -200,6 +200,75 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"🔗 لینک جدید: {info['direct_download_url']}")
         else:
             await query.edit_message_text("⚠️ خطا در ایجاد لینک جدید")
+    elif data.startswith("admin:") and is_admin(update.effective_user.id):
+        action = data.split(":", 1)[1]
+        admin_headers = {"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")}
+        if action == "plans":
+            resp = requests.get(f"{API_BASE_URL}/admin/plan", headers=admin_headers)
+            if resp.status_code == 200:
+                plans = resp.json()
+                if not plans:
+                    await query.message.reply_text("پلنی وجود ندارد")
+                for p in plans:
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ حذف", callback_data=f"delplan:{p['id']}")]])
+                    await query.message.reply_text(f"{p['name']} - {p['id']}", reply_markup=kb)
+            else:
+                await query.message.reply_text("خطا در دریافت پلن‌ها")
+        elif action == "users":
+            resp = requests.get(f"{API_BASE_URL}/admin/users", headers=admin_headers)
+            if resp.status_code == 200:
+                users = resp.json()
+                if not users:
+                    await query.message.reply_text("کاربری یافت نشد")
+                for u in users[:10]:
+                    if u.get("is_blocked"):
+                        cd = f"unblockuser:{u['id']}"
+                        btn_text = "🔓 رفع مسدودی"
+                    else:
+                        cd = f"blockuser:{u['id']}"
+                        btn_text = "🔒 مسدود"
+                    kb = InlineKeyboardMarkup([[InlineKeyboardButton(btn_text, callback_data=cd)]])
+                    name = u.get("full_name") or ""
+                    uname = f"@{u['username']}" if u.get('username') else ""
+                    await query.message.reply_text(f"{name} {uname} - {u['telegram_id']}", reply_markup=kb)
+            else:
+                await query.message.reply_text("خطا در دریافت کاربران")
+        elif action == "toggle":
+            global BOT_PAUSED
+            BOT_PAUSED = not BOT_PAUSED
+            await admin_menu(update, context)
+        elif action == "broadcast":
+            await query.message.reply_text("برای ارسال پیام از دستور /broadcast استفاده کنید")
+        elif action == "cancel_all":
+            for tasks in active_downloads.values():
+                for t in tasks:
+                    t.cancel = True
+            await query.message.reply_text("تمام دانلودها لغو شد")
+        return
+    elif data.startswith("delplan:") and is_admin(update.effective_user.id):
+        plan_id = data.split(":", 1)[1]
+        admin_headers = {"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")}
+        resp = requests.delete(f"{API_BASE_URL}/admin/plan/{plan_id}", headers=admin_headers)
+        if resp.status_code == 200:
+            await query.edit_message_text("پلن حذف شد")
+        else:
+            await query.edit_message_text("خطا در حذف پلن")
+    elif data.startswith("blockuser:") and is_admin(update.effective_user.id):
+        uid = data.split(":", 1)[1]
+        admin_headers = {"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")}
+        resp = requests.post(f"{API_BASE_URL}/admin/user/block/{uid}", headers=admin_headers)
+        if resp.status_code == 200:
+            await query.edit_message_text("کاربر مسدود شد")
+        else:
+            await query.edit_message_text("خطا در عملیات")
+    elif data.startswith("unblockuser:") and is_admin(update.effective_user.id):
+        uid = data.split(":", 1)[1]
+        admin_headers = {"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")}
+        resp = requests.post(f"{API_BASE_URL}/admin/user/unblock/{uid}", headers=admin_headers)
+        if resp.status_code == 200:
+            await query.edit_message_text("کاربر آزاد شد")
+        else:
+            await query.edit_message_text("خطا در عملیات")
 
 
 async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -317,6 +386,26 @@ async def cancel_all_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             t.cancel = True
     await update.message.reply_text("تمام پردازش‌ها لغو شد")
 
+
+async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Display admin control panel."""
+    if not is_admin(update.effective_user.id):
+        return
+    status_btn = "\u23F8 توقف ربات" if not BOT_PAUSED else "\u25B6\ufe0f ادامه ربات"
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("\U0001F4CA \u067e\u0644\u0646\u200c\u0647\u0627", callback_data="admin:plans")],
+            [InlineKeyboardButton("\U0001F465 \u06a9\u0627\u0631\u0628\u0631\u0627\u0646", callback_data="admin:users")],
+            [InlineKeyboardButton(status_btn, callback_data="admin:toggle")],
+            [InlineKeyboardButton("\U0001F4E3 \u0627\u0631\u0633\u0627\u0644 \u0647\u0645\u06af\u0627\u0646\u06cc", callback_data="admin:broadcast")],
+            [InlineKeyboardButton("\u274C \u0644\u063a\u0648 \u0647\u0645\u0647 \u062f\u0627\u0646\u0644\u0648\u062f\u0647\u0627", callback_data="admin:cancel_all")],
+        ]
+    )
+    if update.message:
+        await update.message.reply_text("پنل ادمین:", reply_markup=keyboard)
+    else:
+        await update.callback_query.message.edit_text("پنل ادمین:", reply_markup=keyboard)
+
 # اجرای ربات
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -331,6 +420,7 @@ def main():
     app.add_handler(CommandHandler("resumebot", resume_bot))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
     app.add_handler(CommandHandler("cancelall", cancel_all_cmd))
+    app.add_handler(CommandHandler("admin", admin_menu))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.add_handler(MessageHandler(filters.Video.ALL | filters.Audio.ALL | filters.PHOTO, handle_file))
     app.add_handler(CallbackQueryHandler(button_handler))
