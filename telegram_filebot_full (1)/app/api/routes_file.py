@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import async_session
-from app.schemas.file import FileCreate, FileOut
+from app.schemas.file import FileCreate, FileOut, FileLinkCreate
 from app.models.file import File
 from app.core.subscription_guard import check_active_subscription, check_user_limits
 from app.services.file_service import save_file_metadata
+from app.services.download_worker import download_file_from_url
 from sqlalchemy.future import select
 import uuid
 from datetime import datetime
@@ -41,6 +42,42 @@ async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession 
         is_from_link=file_data.is_from_link,
         original_link=file_data.original_link,
         created_at=datetime.utcnow()
+    )
+    db.add(new_file)
+    await db.commit()
+    await db.refresh(new_file)
+    return new_file
+
+
+@router.post("/upload_link", response_model=FileOut)
+async def upload_from_link(data: FileLinkCreate, request: Request, db: AsyncSession = Depends(get_db)):
+    """Download a file from a URL and register it for the authenticated user."""
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="X-User-Id header missing")
+
+    file_name = data.file_name or data.url.split("/")[-1]
+    path = download_file_from_url(data.url, file_name)
+    if not path:
+        raise HTTPException(status_code=500, detail="Download failed")
+
+    file_size = os.path.getsize(path)
+
+    await check_active_subscription(user_id)
+    await check_user_limits(user_id, file_size)
+
+    direct_download_url = f"https://yourdomain.com/downloads/{uuid.uuid4().hex}"
+
+    new_file = File(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        original_file_name=file_name,
+        file_size=file_size,
+        storage_path=path,
+        direct_download_url=direct_download_url,
+        is_from_link=True,
+        original_link=data.url,
+        created_at=datetime.utcnow(),
     )
     db.add(new_file)
     await db.commit()
