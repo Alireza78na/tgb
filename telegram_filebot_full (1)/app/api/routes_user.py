@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from app.core.user_guard import ensure_not_blocked
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.schemas.user import UserCreate, UserOut
@@ -65,6 +66,8 @@ async def get_my_subscription(request: Request, db: AsyncSession = Depends(get_d
     user_id = request.headers.get("X-User-Id")
     if not user_id:
         raise HTTPException(status_code=400, detail="X-User-Id header missing")
+
+    await ensure_not_blocked(user_id)
 
     result = await db.execute(
         select(UserSubscription).where(UserSubscription.user_id == user_id, UserSubscription.is_active == True)

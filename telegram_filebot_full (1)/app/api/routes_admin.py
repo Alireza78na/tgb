@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, Request, HTTPException
+import requests
+import os
 from app.core.auth import verify_admin_token
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import async_session
+from app.models.user import User
 from app.models.subscription import SubscriptionPlan
 from app.models.user_subscription import UserSubscription
 from app.schemas.subscription import (
@@ -139,3 +142,119 @@ async def get_user_subscription(
     if not sub:
         raise HTTPException(status_code=404, detail="اشتراک پیدا نشد.")
     return sub
+
+
+@router.post("/user/block/{user_id}")
+async def block_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth: None = Depends(verify_admin_token),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+    user.is_blocked = True
+    await db.commit()
+    return {"detail": "blocked"}
+
+
+@router.post("/user/unblock/{user_id}")
+async def unblock_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth: None = Depends(verify_admin_token),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+    user.is_blocked = False
+    await db.commit()
+    return {"detail": "unblocked"}
+
+
+@router.get("/users")
+async def list_users(
+    q: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    auth: None = Depends(verify_admin_token),
+):
+    query = select(User)
+    if q:
+        like = f"%{q}%"
+        query = query.where((User.username.ilike(like)) | (User.full_name.ilike(like)))
+    result = await db.execute(query)
+    users = result.scalars().all()
+    return users
+
+
+@router.get("/files")
+async def list_all_files(
+    q: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    auth: None = Depends(verify_admin_token),
+):
+    query = select(File)
+    if q:
+        like = f"%{q}%"
+        query = query.where(File.original_file_name.ilike(like))
+    result = await db.execute(query)
+    files = result.scalars().all()
+    return files
+
+
+@router.delete("/file/{file_id}")
+async def admin_delete_file(
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth: None = Depends(verify_admin_token),
+):
+    result = await db.execute(select(File).where(File.id == file_id))
+    file = result.scalars().first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        if os.path.exists(file.storage_path):
+            os.remove(file.storage_path)
+    except Exception:
+        pass
+    await db.delete(file)
+    await db.commit()
+    return {"detail": "deleted"}
+
+
+@router.post("/subscription/cancel/{user_id}")
+async def cancel_subscription(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth: None = Depends(verify_admin_token),
+):
+    result = await db.execute(
+        select(UserSubscription).where(UserSubscription.user_id == user_id, UserSubscription.is_active == True)
+    )
+    sub = result.scalars().first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="اشتراک فعال یافت نشد")
+    sub.is_active = False
+    await db.commit()
+    return {"detail": "subscription cancelled"}
+
+
+from app.core.config import BOT_TOKEN
+
+
+@router.post("/broadcast")
+async def broadcast(message: str, db: AsyncSession = Depends(get_db), auth: None = Depends(verify_admin_token)):
+    result = await db.execute(select(User.telegram_id))
+    ids = [row[0] for row in result.all()]
+    for tid in ids:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                data={"chat_id": tid, "text": message},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    return {"sent": len(ids)}
