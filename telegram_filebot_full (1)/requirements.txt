@@ -8,3 +8,4 @@ requests
 aiofiles
 psutil
 jinja2
+aiosqlite
