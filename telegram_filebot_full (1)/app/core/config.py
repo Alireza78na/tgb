@@ -1,9 +1,11 @@
-import os
+from .settings_manager import SettingsManager
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
-DOWNLOAD_DOMAIN = os.getenv("DOWNLOAD_DOMAIN", "yourdomain.com")
+settings = SettingsManager.load()
 
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
+BOT_TOKEN = settings.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
+DOWNLOAD_DOMAIN = settings.get("DOWNLOAD_DOMAIN", "yourdomain.com")
+
+UPLOAD_DIR = settings.get("UPLOAD_DIR", "./uploads")
 
 BLOCKED_EXTENSIONS = {
     ".exe", ".bat", ".cmd", ".sh", ".msi", ".dll", ".scr", ".ps1"
@@ -11,4 +13,4 @@ BLOCKED_EXTENSIONS = {
 
 ILLEGAL_PATTERNS = ["magnet:", ".torrent"]
 
-SUBSCRIPTION_REMINDER_DAYS = int(os.getenv("SUBSCRIPTION_REMINDER_DAYS", "3"))
+SUBSCRIPTION_REMINDER_DAYS = int(settings.get("SUBSCRIPTION_REMINDER_DAYS", 3))
