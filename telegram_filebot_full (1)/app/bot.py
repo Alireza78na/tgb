@@ -15,6 +15,7 @@ import requests
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 ADMIN_IDS = {int(uid) for uid in os.getenv("ADMIN_IDS", "").split(",") if uid}
+REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL")
 BOT_PAUSED = False
 
 
@@ -40,6 +41,20 @@ def bot_paused(update: Update) -> bool:
         return True
     return False
 
+
+async def ensure_channel_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if user is member of REQUIRED_CHANNEL."""
+    if not REQUIRED_CHANNEL or is_admin(update.effective_user.id):
+        return True
+    try:
+        member = await context.bot.get_chat_member(REQUIRED_CHANNEL, update.effective_user.id)
+        if member.status in ("member", "creator", "administrator"):
+            return True
+    except Exception:
+        pass
+    await update.effective_message.reply_text("برای استفاده از ربات ابتدا در کانال عضو شوید")
+    return False
+
 # Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -50,6 +65,8 @@ logging.basicConfig(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bot_paused(update):
         await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
+    if not await ensure_channel_member(update, context):
         return
     user_data = {
         "telegram_id": update.effective_user.id,
@@ -67,12 +84,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await ensure_channel_member(update, context):
+        return
     await update.message.reply_text(f"ID شما: {update.effective_user.id}")
 
 # هندل فایل‌ها
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bot_paused(update):
         await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
+    if not await ensure_channel_member(update, context):
         return
     file = update.message.document or update.message.video or update.message.audio or update.message.photo
     if not file:
@@ -121,6 +142,8 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bot_paused(update):
         await update.message.reply_text("⛔️ Bot under maintenance.")
         return
+    if not await ensure_channel_member(update, context):
+        return
     headers = {"X-User-Id": str(update.effective_user.id)}
     try:
         response = requests.get(f"{API_BASE_URL}/file/list", headers=headers)
@@ -152,6 +175,8 @@ async def delete_file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bot_paused(update):
         await update.message.reply_text("⛔️ Bot under maintenance.")
         return
+    if not await ensure_channel_member(update, context):
+        return
     if not context.args:
         await update.message.reply_text("استفاده: /delete <id1> <id2> ... یا /delete all")
         return
@@ -178,6 +203,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    if not await ensure_channel_member(update, context):
+        return
     if data.startswith("cancel:"):
         uid = int(data.split(":", 1)[1])
         tasks = active_downloads.get(uid, [])
@@ -276,6 +303,8 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bot_paused(update):
         await update.message.reply_text("⛔️ Bot under maintenance.")
         return
+    if not await ensure_channel_member(update, context):
+        return
     if not context.args:
         await update.message.reply_text("استفاده: /uploadlink <URL>")
         return
@@ -336,6 +365,8 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bot_paused(update):
         await update.message.reply_text("⛔️ Bot under maintenance.")
+        return
+    if not await ensure_channel_member(update, context):
         return
     headers = {"X-User-Id": str(update.effective_user.id)}
     try:

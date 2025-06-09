@@ -5,6 +5,9 @@ settings = SettingsManager.load()
 BOT_TOKEN = settings.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 DOWNLOAD_DOMAIN = settings.get("DOWNLOAD_DOMAIN", "yourdomain.com")
 
+ADMIN_IDS = {int(uid) for uid in str(settings.get("ADMIN_IDS", "")).split(",") if uid}
+REQUIRED_CHANNEL = settings.get("REQUIRED_CHANNEL")
+
 UPLOAD_DIR = settings.get("UPLOAD_DIR", "./uploads")
 
 BLOCKED_EXTENSIONS = {

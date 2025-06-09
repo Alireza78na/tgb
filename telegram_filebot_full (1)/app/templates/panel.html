@@ -46,6 +46,8 @@ setInterval(fetchMetrics, 3000);
     <label>DOWNLOAD_DOMAIN <input name="DOWNLOAD_DOMAIN" value="{{settings['DOWNLOAD_DOMAIN']}}"></label><br>
     <label>UPLOAD_DIR <input name="UPLOAD_DIR" value="{{settings['UPLOAD_DIR']}}"></label><br>
     <label>SUBSCRIPTION_REMINDER_DAYS <input name="SUBSCRIPTION_REMINDER_DAYS" type="number" value="{{settings['SUBSCRIPTION_REMINDER_DAYS']}}"></label><br>
+    <label>ADMIN_IDS <input name="ADMIN_IDS" value="{{settings.get('ADMIN_IDS','')}}"></label><br>
+    <label>REQUIRED_CHANNEL <input name="REQUIRED_CHANNEL" value="{{settings.get('REQUIRED_CHANNEL','')}}"></label><br>
     <button type="submit">Save</button>
 </form>
 <script>
