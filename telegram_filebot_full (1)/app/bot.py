@@ -23,7 +23,10 @@ class DownloadTask:
     cancel: bool = False
 
 
-active_downloads: dict[int, DownloadTask] = {}
+from collections import defaultdict
+
+MAX_CONCURRENT_TASKS = 5
+active_downloads: dict[int, list[DownloadTask]] = defaultdict(list)
 
 # Logging
 logging.basicConfig(
@@ -66,6 +69,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ فرمت فایل مجاز نیست.")
         return
 
+    if len(active_downloads[update.effective_user.id]) >= MAX_CONCURRENT_TASKS:
+        await update.message.reply_text("❌ حداکثر تعداد پردازش همزمان مجاز شد")
+        return
+
     payload = {
         "original_file_name": file_name,
         "file_size": file_size,
@@ -75,6 +82,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         headers = {"X-User-Id": str(update.effective_user.id)}
+        task = DownloadTask(chat_id=update.effective_chat.id, message_id=update.message.message_id)
+        active_downloads[update.effective_user.id].append(task)
         response = requests.post(f"{API_BASE_URL}/file/upload", json=payload, headers=headers)
         if response.status_code == 200:
             file_info = response.json()
@@ -85,6 +94,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ خطا در ثبت فایل.")
     except Exception as e:
         await update.message.reply_text("❌ خطا در ارتباط با سرور.")
+    finally:
+        active_downloads[update.effective_user.id].remove(task)
 
 
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -116,20 +127,27 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delete_file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Delete a file by its ID."""
+    """Delete one or multiple files."""
     if not context.args:
-        await update.message.reply_text("استفاده: /delete <file_id>")
+        await update.message.reply_text("استفاده: /delete <id1> <id2> ... یا /delete all")
         return
-    file_id = context.args[0]
     headers = {"X-User-Id": str(update.effective_user.id)}
-    try:
-        response = requests.delete(f"{API_BASE_URL}/file/delete/{file_id}", headers=headers)
-        if response.status_code == 200:
-            await update.message.reply_text("✅ فایل حذف شد.")
+    if context.args[0].lower() == "all":
+        list_resp = requests.get(f"{API_BASE_URL}/file/list", headers=headers)
+        if list_resp.status_code == 200:
+            ids = [f['id'] for f in list_resp.json()]
+            requests.post(f"{API_BASE_URL}/file/delete_bulk", json=ids, headers=headers)
+            await update.message.reply_text("✅ همه فایل‌ها حذف شد")
         else:
-            await update.message.reply_text("⚠️ خطا در حذف فایل.")
-    except Exception:
-        await update.message.reply_text("❌ ارتباط با سرور برقرار نشد.")
+            await update.message.reply_text("⚠️ خطا در دریافت لیست")
+        return
+
+    ids = context.args
+    resp = requests.post(f"{API_BASE_URL}/file/delete_bulk", json=ids, headers=headers)
+    if resp.status_code == 200:
+        await update.message.reply_text("✅ عملیات حذف انجام شد")
+    else:
+        await update.message.reply_text("⚠️ خطا در حذف فایل‌ها")
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -138,9 +156,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     if data.startswith("cancel:"):
         uid = int(data.split(":", 1)[1])
-        task = active_downloads.get(uid)
-        if task:
-            task.cancel = True
+        tasks = active_downloads.get(uid, [])
+        for t in tasks:
+            t.cancel = True
     elif data.startswith("del:"):
         file_id = data.split(":", 1)[1]
         headers = {"X-User-Id": str(update.effective_user.id)}
@@ -176,6 +194,9 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     payload = {"url": url, "file_name": file_name}
     headers = {"X-User-Id": str(update.effective_user.id)}
+    if len(active_downloads[update.effective_user.id]) >= MAX_CONCURRENT_TASKS:
+        await update.message.reply_text("❌ حداکثر تعداد پردازش همزمان مجاز شد")
+        return
     status_msg = await update.message.reply_text(
         "⏬ در حال دانلود...",
         reply_markup=InlineKeyboardMarkup(
@@ -183,7 +204,7 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
     )
     task = DownloadTask(chat_id=update.effective_chat.id, message_id=status_msg.message_id)
-    active_downloads[update.effective_user.id] = task
+    active_downloads[update.effective_user.id].append(task)
     try:
         response = requests.post(f"{API_BASE_URL}/file/upload_link", json=payload, headers=headers)
         if response.status_code == 200 and not task.cancel:
@@ -212,7 +233,8 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="❌ ارتباط با سرور برقرار نشد."
         )
     finally:
-        active_downloads.pop(update.effective_user.id, None)
+        if task in active_downloads[update.effective_user.id]:
+            active_downloads[update.effective_user.id].remove(task)
 
 
 async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -235,6 +257,7 @@ def main():
     app.add_handler(CommandHandler("myid", my_id))
     app.add_handler(CommandHandler("files", list_files))
     app.add_handler(CommandHandler("delete", delete_file_cmd))
+    app.add_handler(CommandHandler("deleteall", lambda u, c: delete_file_cmd(u, c)))
     app.add_handler(CommandHandler("uploadlink", upload_link))
     app.add_handler(CommandHandler("mysub", my_subscription))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
