@@ -15,6 +15,7 @@ class UserSubscription(Base):
     start_date = Column(DateTime, default=datetime.utcnow)
     end_date = Column(DateTime)
     is_active = Column(Boolean, default=True)
+    reminder_sent = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="subscriptions")
     plan = relationship("SubscriptionPlan", back_populates="subscriptions")

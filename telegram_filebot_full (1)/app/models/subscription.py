@@ -16,4 +16,4 @@ class SubscriptionPlan(Base):
     price = Column(Numeric)
     is_active = Column(Boolean, default=True)
 
-    users = relationship("User", back_populates="subscription")
+    subscriptions = relationship("UserSubscription", back_populates="plan")

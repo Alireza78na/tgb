@@ -132,6 +132,20 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         await update.message.reply_text("❌ ارتباط با سرور برقرار نشد.")
 
+
+async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    headers = {"X-User-Id": str(update.effective_user.id)}
+    try:
+        resp = requests.get(f"{API_BASE_URL}/user/subscription", headers=headers)
+        if resp.status_code == 200:
+            info = resp.json()
+            text = f"پلن فعلی: {info['plan_name']}\nانقضا: {info['end_date']}"
+            await update.message.reply_text(text)
+        else:
+            await update.message.reply_text("اشتراکی برای شما فعال نیست.")
+    except Exception:
+        await update.message.reply_text("❌ ارتباط با سرور برقرار نشد.")
+
 # اجرای ربات
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -139,6 +153,7 @@ def main():
     app.add_handler(CommandHandler("files", list_files))
     app.add_handler(CommandHandler("delete", delete_file_cmd))
     app.add_handler(CommandHandler("uploadlink", upload_link))
+    app.add_handler(CommandHandler("mysub", my_subscription))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.add_handler(MessageHandler(filters.Video.ALL | filters.Audio.ALL | filters.PHOTO, handle_file))
     print("🤖 Bot is running...")
