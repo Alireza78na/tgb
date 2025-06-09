@@ -7,6 +7,7 @@ class FileCreate(BaseModel):
     file_size: int
     is_from_link: Optional[bool] = False
     original_link: Optional[str] = None
+    telegram_file_id: Optional[str] = None
 
 class FileLinkCreate(BaseModel):
     """Schema for creating a file from a remote URL."""

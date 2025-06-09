@@ -9,6 +9,11 @@ uvicorn app.main:app --reload
 python app/bot.py
 ```
 
+متغیرهای محیطی مهم:
+- `BOT_TOKEN`: توکن ربات تلگرام
+- `API_BASE_URL`: آدرس API بک‌اند برای ربات
+- `DOWNLOAD_DOMAIN`: دامنه‌ای که به کاربر برای دانلود نشان داده می‌شود
+
 ### اجرای با Docker
 ```bash
 docker-compose up --build

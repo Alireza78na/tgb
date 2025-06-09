@@ -4,10 +4,11 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, filters
 )
+import os
 import requests
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-API_BASE_URL = "http://localhost:8000"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 # Logging
 logging.basicConfig(
@@ -41,10 +42,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_name = file.file_name if hasattr(file, 'file_name') else "unknown_file"
     file_size = file.file_size
 
+    blocked_ext = {".exe", ".bat", ".cmd", ".sh", ".msi", ".dll", ".scr", ".ps1"}
+    if any(file_name.lower().endswith(ext) for ext in blocked_ext):
+        await update.message.reply_text("❌ فرمت فایل مجاز نیست.")
+        return
+
     payload = {
         "original_file_name": file_name,
         "file_size": file_size,
-        "is_from_link": False
+        "is_from_link": False,
+        "telegram_file_id": file.file_id,
     }
 
     try:
@@ -102,7 +109,14 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("استفاده: /uploadlink <URL>")
         return
     url = context.args[0]
+    if url.lower().startswith("magnet:") or ".torrent" in url.lower():
+        await update.message.reply_text("❌ لینک غیرمجاز است.")
+        return
     file_name = url.split("/")[-1]
+    blocked_ext = {".exe", ".bat", ".cmd", ".sh", ".msi", ".dll", ".scr", ".ps1"}
+    if any(file_name.lower().endswith(ext) for ext in blocked_ext):
+        await update.message.reply_text("❌ فرمت فایل مجاز نیست.")
+        return
     payload = {
         "url": url,
         "file_name": file_name
