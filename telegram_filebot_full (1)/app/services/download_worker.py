@@ -2,6 +2,7 @@ import requests
 import os
 from datetime import datetime
 from uuid import uuid4
+from typing import Callable, Optional
 from app.core import config
 
 UPLOAD_DIR = config.UPLOAD_DIR
@@ -26,18 +27,34 @@ def _prepare_path(filename: str) -> str:
     return os.path.join(folder_path, unique_name)
 
 
-def download_file_from_url(url: str, filename: str) -> str:
+def download_file_from_url(
+    url: str,
+    filename: str,
+    progress_cb: Optional[Callable[[int], None]] = None,
+    cancel_cb: Optional[Callable[[], bool]] = None,
+) -> str:
+    """Download a file with optional progress and cancellation."""
     if is_illegal_url(url) or is_blocked_extension(filename):
         print("[!] Download blocked due to illegal link or file type")
         return ""
+
     full_path = _prepare_path(filename)
     try:
-        response = requests.get(url, stream=True, timeout=30)
-        response.raise_for_status()
-        with open(full_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+        with requests.get(url, stream=True, timeout=30) as response:
+            response.raise_for_status()
+            total = int(response.headers.get("content-length", 0))
+            downloaded = 0
+            with open(full_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if cancel_cb and cancel_cb():
+                        print("[!] Download cancelled")
+                        return ""
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_cb and total:
+                            percent = int(downloaded * 100 / total)
+                            progress_cb(percent)
         print(f"[✔] File downloaded to: {full_path}")
         return full_path
     except Exception as e:
@@ -45,7 +62,12 @@ def download_file_from_url(url: str, filename: str) -> str:
         return ""
 
 
-def download_file_from_telegram(file_id: str, filename: str) -> str:
+def download_file_from_telegram(
+    file_id: str,
+    filename: str,
+    progress_cb: Optional[Callable[[int], None]] = None,
+    cancel_cb: Optional[Callable[[], bool]] = None,
+) -> str:
     if is_blocked_extension(filename):
         print("[!] Download blocked due to disallowed file type")
         return ""
@@ -60,7 +82,9 @@ def download_file_from_telegram(file_id: str, filename: str) -> str:
         file_url = (
             f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{file_path}"
         )
-        return download_file_from_url(file_url, filename)
+        return download_file_from_url(
+            file_url, filename, progress_cb=progress_cb, cancel_cb=cancel_cb
+        )
     except Exception as e:
         print(f"[✘] Telegram download failed: {e}")
         return ""

@@ -148,3 +148,22 @@ async def delete_file(file_id: str, request: Request, db: AsyncSession = Depends
     await db.delete(file)
     await db.commit()
     return {"detail": "File deleted"}
+
+
+@router.post("/regenerate/{file_id}", response_model=FileOut)
+async def regenerate_link(file_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="X-User-Id header missing")
+
+    result = await db.execute(select(File).where(File.id == file_id))
+    file = result.scalars().first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    if file.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    file.direct_download_url = f"https://{config.DOWNLOAD_DOMAIN}/downloads/{uuid.uuid4().hex}"
+    await db.commit()
+    await db.refresh(file)
+    return file
