@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Request, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import async_session
 from app.schemas.file import FileCreate, FileOut, FileLinkCreate
@@ -235,4 +235,11 @@ async def download_file(file_id: str, token: str, request: Request, db: AsyncSes
         raise HTTPException(status_code=404, detail="File not found")
     if file.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not allowed")
-    return FileResponse(path=file.storage_path, filename=file.original_file_name)
+
+    internal_path = os.path.relpath(file.storage_path, config.UPLOAD_DIR)
+    response = Response()
+    response.headers["X-Accel-Redirect"] = f"/protected/{internal_path}"
+    response.headers["Content-Disposition"] = (
+        f"attachment; filename=\"{file.original_file_name}\""
+    )
+    return response

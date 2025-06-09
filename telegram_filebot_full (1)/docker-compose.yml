@@ -4,7 +4,21 @@ services:
     build: .
     volumes:
       - .:/app
+      - uploads:/app/uploads
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+
+  nginx:
+    image: nginx:stable
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - uploads:/uploads:ro
+
+volumes:
+  uploads:
