@@ -10,7 +10,7 @@ fi
 
 # Install prerequisites
 apt update
-apt install -y git docker.io docker-compose python3.11 python3.11-venv
+apt install -y git docker.io docker-compose-v2 python3.11 python3.11-venv
 systemctl enable --now docker
 
 # Ask for configuration
@@ -36,6 +36,6 @@ REQUIRED_CHANNEL=$REQUIRED_CHANNEL
 ENV
 
 # Build and run containers
-docker-compose up --build -d
+docker compose up --build -d
 
-echo "\nSetup complete! Use 'docker-compose logs -f' to view logs."
+echo "\nSetup complete! Use 'docker compose logs -f' to view logs."
