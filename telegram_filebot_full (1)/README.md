@@ -12,7 +12,7 @@
    ```
 2. **نصب Docker و Docker Compose**
    ```bash
-   sudo apt install docker.io docker-compose -y
+   sudo apt install docker.io docker-compose-v2 -y
    sudo systemctl enable --now docker
    ```
 3. برای اجرای محلی نیاز است Python 3.11 نصب شده باشد.
@@ -44,11 +44,11 @@ sudo bash setup.sh
 3. در صورت نیاز فایل `app/settings.json` را نیز ویرایش کنید.
 4. اجرای سرویس‌ها:
    ```bash
-   docker-compose up --build -d
+   docker compose up --build -d
    ```
 5. برای مشاهده لاگ‌ها:
    ```bash
-   docker-compose logs -f
+   docker compose logs -f
    ```
    بعد از بالا آمدن کانتینرها، ربات آماده استفاده است.
 
