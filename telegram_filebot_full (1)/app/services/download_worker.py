@@ -5,6 +5,15 @@ from uuid import uuid4
 from typing import Callable, Optional
 from app.core import config
 
+def get_remote_file_size(url: str) -> int:
+    """Try to get remote file size via HTTP HEAD request."""
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=15)
+        r.raise_for_status()
+        return int(r.headers.get("content-length", 0))
+    except Exception:
+        return 0
+
 UPLOAD_DIR = config.UPLOAD_DIR
 
 

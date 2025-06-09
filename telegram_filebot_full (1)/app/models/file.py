@@ -15,6 +15,7 @@ class File(Base):
     file_size = Column(Integer)
     storage_path = Column(Text)
     direct_download_url = Column(Text)
+    download_token = Column(String, default=lambda: uuid.uuid4().hex)
     is_from_link = Column(Boolean, default=False)
     original_link = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
