@@ -19,7 +19,10 @@ async def get_db():
 @router.post("/subscription/create", response_model=UserSubscriptionOut)
 async def create_subscription(
     request: Request,
-    auth=Depends(verify_admin_token),data: UserSubscriptionCreate, db: AsyncSession = Depends(get_db)):
+    data: UserSubscriptionCreate,
+    auth: str = Depends(verify_admin_token),
+    db: AsyncSession = Depends(get_db),
+):
     new_subscription = UserSubscription(
         id=str(uuid.uuid4()),
         user_id=data.user_id,
@@ -40,7 +43,10 @@ from typing import List
 @router.get("/user/{user_id}/files", response_model=List[FileOut])
 async def list_user_files(
     request: Request,
-    auth=Depends(verify_admin_token),user_id: str, db: AsyncSession = Depends(get_db)):
+    user_id: str,
+    auth: str = Depends(verify_admin_token),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(File).where(File.user_id == user_id))
     files = result.scalars().all()
     return files
@@ -50,7 +56,10 @@ from app.schemas.subscription import UserSubscriptionOut
 @router.get("/user/{user_id}/subscription", response_model=UserSubscriptionOut)
 async def get_user_subscription(
     request: Request,
-    auth=Depends(verify_admin_token),user_id: str, db: AsyncSession = Depends(get_db)):
+    user_id: str,
+    auth: str = Depends(verify_admin_token),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(UserSubscription).where(UserSubscription.user_id == user_id)
     )

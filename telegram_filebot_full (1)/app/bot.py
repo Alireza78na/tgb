@@ -52,8 +52,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.post(f"{API_BASE_URL}/file/upload", json=payload, headers=headers)
         if response.status_code == 200:
             file_info = response.json()
-            await update.message.reply_text(f"✅ لینک دانلود فایل شما:
-{file_info['direct_download_url']}")
+            await update.message.reply_text(
+                f"✅ لینک دانلود فایل شما: {file_info['direct_download_url']}"
+            )
         else:
             await update.message.reply_text("⚠️ خطا در ثبت فایل.")
     except Exception as e:

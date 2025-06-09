@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import async_session
 from app.schemas.file import FileCreate, FileOut
@@ -17,16 +17,19 @@ async def get_db():
 
 @router.post("/upload", response_model=FileOut)
 async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession = Depends(get_db)):
-    # ساخت مسیر فایل
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="X-User-Id header required")
+
     storage_path = save_file_metadata(file_data.original_file_name)
     direct_download_url = f"https://yourdomain.com/downloads/{uuid.uuid4().hex}"
 
-    await check_active_subscription(update.message.from_user.id  # real Telegram user_id)
-    await check_user_limits(update.message.from_user.id  # real Telegram user_id, file_data.file_size)  # جایگزین با user_id واقعی در اتصال با ربات
+    await check_active_subscription(user_id)
+    await check_user_limits(user_id, file_data.file_size)
 
     new_file = File(
         id=str(uuid.uuid4()),
-        user_id="mock-user-id",  # برای تست فعلاً مقدار ثابت
+        user_id=user_id,
         original_file_name=file_data.original_file_name,
         file_size=file_data.file_size,
         storage_path=storage_path,
@@ -39,3 +42,32 @@ async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession 
     await db.commit()
     await db.refresh(new_file)
     return new_file
+
+@router.get("/my", response_model=list[FileOut])
+async def list_my_files(request: Request, db: AsyncSession = Depends(get_db)):
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="X-User-Id header required")
+    result = await db.execute(select(File).where(File.user_id == user_id))
+    return result.scalars().all()
+
+@router.get("/{file_id}", response_model=FileOut)
+async def get_file(file_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(File).where(File.id == file_id))
+    file = result.scalars().first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    return file
+
+@router.delete("/{file_id}")
+async def delete_file(file_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="X-User-Id header required")
+    result = await db.execute(select(File).where(File.id == file_id, File.user_id == user_id))
+    file = result.scalars().first()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+    await db.delete(file)
+    await db.commit()
+    return {"detail": "deleted"}
