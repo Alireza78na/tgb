@@ -13,7 +13,10 @@ import os
 import requests
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+# When using Docker Compose the backend service is reachable via the
+# 'backend' hostname inside the bot container. Default to that URL so
+# the bot can talk to the API without additional configuration.
+API_BASE_URL = os.getenv("API_BASE_URL", "http://backend:8000")
 ADMIN_IDS = {int(uid) for uid in os.getenv("ADMIN_IDS", "").split(",") if uid}
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL")
 BOT_PAUSED = False

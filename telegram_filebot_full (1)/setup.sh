@@ -16,13 +16,16 @@ systemctl enable --now docker
 # Ask for configuration
 read -rp "Enter Telegram Bot Token: " BOT_TOKEN
 read -rp "Enter download domain (e.g. example.com): " DOWNLOAD_DOMAIN
-read -rp "Enter API base URL [http://localhost:8000]: " API_BASE_URL
+read -rp "Enter API base URL [http://backend:8000]: " API_BASE_URL
 read -rp "Enter admin IDs separated by comma: " ADMIN_IDS
 read -rp "Enter admin API token: " ADMIN_API_TOKEN
 read -rp "Enter subscription reminder days [3]: " SUBSCRIPTION_REMINDER_DAYS
 read -rp "Enter required channel username or ID (leave blank if none): " REQUIRED_CHANNEL
 
-API_BASE_URL=${API_BASE_URL:-http://localhost:8000}
+# When running the services with Docker Compose the backend container is
+# accessible via the hostname 'backend'. Use that as the default API base
+# URL so the bot can connect without extra configuration.
+API_BASE_URL=${API_BASE_URL:-http://backend:8000}
 SUBSCRIPTION_REMINDER_DAYS=${SUBSCRIPTION_REMINDER_DAYS:-3}
 
 cat > .env <<ENV
