@@ -453,7 +453,12 @@ def main():
     app.add_handler(CommandHandler("cancelall", cancel_all_cmd))
     app.add_handler(CommandHandler("admin", admin_menu))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    app.add_handler(MessageHandler(filters.Video.ALL | filters.Audio.ALL | filters.PHOTO, handle_file))
+    app.add_handler(
+        MessageHandler(
+            filters.VIDEO | filters.AUDIO | filters.PHOTO,
+            handle_file,
+        )
+    )
     app.add_handler(CallbackQueryHandler(button_handler))
     print("🤖 Bot is running...")
     app.run_polling()
