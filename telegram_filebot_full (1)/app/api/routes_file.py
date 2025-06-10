@@ -43,8 +43,8 @@ async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession 
         raise HTTPException(status_code=400, detail="نوع فایل مجاز نیست")
 
     # Subscription and quota checks before downloading
-    await check_active_subscription(user_id)
-    await check_user_limits(user_id, file_data.file_size)
+    await check_active_subscription(user_id, db)
+    await check_user_limits(user_id, file_data.file_size, db)
 
     if file_data.telegram_file_id:
         storage_path = download_file_from_telegram(
@@ -95,8 +95,8 @@ async def upload_from_link(data: FileLinkCreate, request: Request, db: AsyncSess
         raise HTTPException(status_code=400, detail="نوع فایل مجاز نیست")
 
     remote_size = get_remote_file_size(data.url)
-    await check_active_subscription(user_id)
-    await check_user_limits(user_id, remote_size)
+    await check_active_subscription(user_id, db)
+    await check_user_limits(user_id, remote_size, db)
 
     path = download_file_from_url(data.url, file_name)
     if not path:
