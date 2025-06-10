@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import async_session
 from app.models.user_subscription import UserSubscription
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta
 from app.models.subscription import SubscriptionPlan
 import requests
@@ -11,6 +12,7 @@ async def check_active_subscription(user_id: str):
     async with async_session() as session:
         result = await session.execute(
             select(UserSubscription)
+            .options(selectinload(UserSubscription.plan))
             .where(UserSubscription.user_id == user_id)
             .where(UserSubscription.is_active == True)
         )
@@ -77,6 +79,7 @@ async def check_user_limits(user_id: str, incoming_file_size: int):
         # بررسی اشتراک فعال
         result = await session.execute(
             select(UserSubscription)
+            .options(selectinload(UserSubscription.plan))
             .where(UserSubscription.user_id == user_id)
             .where(UserSubscription.is_active == True)
         )

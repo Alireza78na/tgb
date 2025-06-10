@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.core.user_guard import ensure_not_blocked
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from app.schemas.user import UserCreate, UserOut
 from app.models.user import User
 from app.models.subscription import SubscriptionPlan
@@ -70,7 +71,9 @@ async def get_my_subscription(request: Request, db: AsyncSession = Depends(get_d
     await ensure_not_blocked(user_id)
 
     result = await db.execute(
-        select(UserSubscription).where(UserSubscription.user_id == user_id, UserSubscription.is_active == True)
+        select(UserSubscription)
+        .options(selectinload(UserSubscription.plan))
+        .where(UserSubscription.user_id == user_id, UserSubscription.is_active == True)
     )
     sub = result.scalars().first()
     if not sub:
