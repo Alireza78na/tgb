@@ -12,6 +12,28 @@ from telegram.ext import (
 import os
 import requests
 
+
+def get_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
+    """Ensure the user is registered and return their backend ID."""
+    if uid := context.user_data.get("user_id"):
+        return uid
+
+    payload = {
+        "telegram_id": update.effective_user.id,
+        "username": update.effective_user.username,
+        "full_name": update.effective_user.full_name,
+    }
+    try:
+        resp = requests.post(f"{API_BASE_URL}/user/register", json=payload)
+        if resp.status_code == 200:
+            uid = resp.json().get("id")
+            if uid:
+                context.user_data["user_id"] = uid
+                return uid
+    except Exception:
+        pass
+    return None
+
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
 # When using Docker Compose the backend service is reachable via the
 # 'backend' hostname inside the bot container. Default to that URL so
@@ -71,25 +93,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not await ensure_channel_member(update, context):
         return
-    user_data = {
-        "telegram_id": update.effective_user.id,
-        "username": update.effective_user.username,
-        "full_name": update.effective_user.full_name
-    }
-    try:
-        response = requests.post(f"{API_BASE_URL}/user/register", json=user_data)
-        if response.status_code == 200:
-            await update.message.reply_text("✅ شما با موفقیت ثبت شدید!")
-        else:
-            await update.message.reply_text("⚠️ خطا در ثبت نام.")
-    except Exception as e:
-        await update.message.reply_text("❌ ارتباط با سرور برقرار نشد.")
+    uid = get_user_id(update, context)
+    if uid:
+        await update.message.reply_text("✅ شما با موفقیت ثبت شدید!")
+    else:
+        await update.message.reply_text("⚠️ خطا در ثبت نام.")
 
 
 async def my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await ensure_channel_member(update, context):
         return
-    await update.message.reply_text(f"ID شما: {update.effective_user.id}")
+    uid = get_user_id(update, context)
+    if uid:
+        await update.message.reply_text(f"ID شما: {uid}")
+    else:
+        await update.message.reply_text("⚠️ خطا در دریافت شناسه شما")
 
 # هندل فایل‌ها
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -123,7 +141,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     try:
-        headers = {"X-User-Id": str(update.effective_user.id)}
+        uid = get_user_id(update, context)
+        if not uid:
+            await update.message.reply_text("⚠️ خطا در ثبت نام.")
+            return
+        headers = {"X-User-Id": uid}
         task = DownloadTask(chat_id=update.effective_chat.id, message_id=update.message.message_id)
         active_downloads[update.effective_user.id].append(task)
         response = requests.post(f"{API_BASE_URL}/file/upload", json=payload, headers=headers)
@@ -147,7 +169,11 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not await ensure_channel_member(update, context):
         return
-    headers = {"X-User-Id": str(update.effective_user.id)}
+    uid = get_user_id(update, context)
+    if not uid:
+        await update.message.reply_text("⚠️ خطا در ثبت نام.")
+        return
+    headers = {"X-User-Id": uid}
     try:
         response = requests.get(f"{API_BASE_URL}/file/list", headers=headers)
         if response.status_code == 200:
@@ -183,7 +209,11 @@ async def delete_file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("استفاده: /delete <id1> <id2> ... یا /delete all")
         return
-    headers = {"X-User-Id": str(update.effective_user.id)}
+    uid = get_user_id(update, context)
+    if not uid:
+        await update.message.reply_text("⚠️ خطا در ثبت نام.")
+        return
+    headers = {"X-User-Id": uid}
     if context.args[0].lower() == "all":
         list_resp = requests.get(f"{API_BASE_URL}/file/list", headers=headers)
         if list_resp.status_code == 200:
@@ -215,7 +245,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             t.cancel = True
     elif data.startswith("del:"):
         file_id = data.split(":", 1)[1]
-        headers = {"X-User-Id": str(update.effective_user.id)}
+        uid = get_user_id(update, context)
+        if not uid:
+            await query.edit_message_text("⚠️ خطا در ثبت نام")
+            return
+        headers = {"X-User-Id": uid}
         resp = requests.delete(f"{API_BASE_URL}/file/delete/{file_id}", headers=headers)
         if resp.status_code == 200:
             await query.edit_message_text("✅ فایل حذف شد")
@@ -223,7 +257,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⚠️ خطا در حذف فایل")
     elif data.startswith("regen:"):
         file_id = data.split(":", 1)[1]
-        headers = {"X-User-Id": str(update.effective_user.id)}
+        uid = get_user_id(update, context)
+        if not uid:
+            await query.edit_message_text("⚠️ خطا در ثبت نام")
+            return
+        headers = {"X-User-Id": uid}
         resp = requests.post(f"{API_BASE_URL}/file/regenerate/{file_id}", headers=headers)
         if resp.status_code == 200:
             info = resp.json()
@@ -321,7 +359,11 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ فرمت فایل مجاز نیست.")
         return
     payload = {"url": url, "file_name": file_name}
-    headers = {"X-User-Id": str(update.effective_user.id)}
+    uid = get_user_id(update, context)
+    if not uid:
+        await update.message.reply_text("⚠️ خطا در ثبت نام.")
+        return
+    headers = {"X-User-Id": uid}
     if len(active_downloads[update.effective_user.id]) >= MAX_CONCURRENT_TASKS:
         await update.message.reply_text("❌ حداکثر تعداد پردازش همزمان مجاز شد")
         return
@@ -371,7 +413,11 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not await ensure_channel_member(update, context):
         return
-    headers = {"X-User-Id": str(update.effective_user.id)}
+    uid = get_user_id(update, context)
+    if not uid:
+        await update.message.reply_text("⚠️ خطا در ثبت نام.")
+        return
+    headers = {"X-User-Id": uid}
     try:
         resp = requests.get(f"{API_BASE_URL}/user/subscription", headers=headers)
         if resp.status_code == 200:

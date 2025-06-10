@@ -1,6 +1,8 @@
 {
   "BOT_TOKEN": "YOUR_BOT_TOKEN",
   "DOWNLOAD_DOMAIN": "yourdomain.com",
+  "API_ID": 0,
+  "API_HASH": "",
   "UPLOAD_DIR": "./uploads",
   "SUBSCRIPTION_REMINDER_DAYS": 3,
   "ADMIN_IDS": "",
