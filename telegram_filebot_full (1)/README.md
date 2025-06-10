@@ -33,7 +33,9 @@ sudo bash setup.sh
 2. فایل `.env` در ریشه پروژه بسازید و مقادیر زیر را وارد کنید یا از اسکریپت `setup.sh` استفاده کنید:
    ```env
    BOT_TOKEN=<توکن ربات تلگرام>
-   API_BASE_URL=http://localhost:8000
+   # آدرس سرویس بک‌اند. در محیط Docker به صورت پیش‌فرض کانتینر `bot`
+   # از طریق نام سرویس `backend` به وب‌سرویس دسترسی دارد.
+   API_BASE_URL=http://backend:8000
    DOWNLOAD_DOMAIN=<دامنه یا IP سرور>
    ADMIN_IDS=<شناسه عددی ادمین‌ها با کاما>
    ADMIN_API_TOKEN=SuperSecretAdminToken123
@@ -62,6 +64,7 @@ python app/bot.py
 متغیرهای محیطی مهم:
 - `BOT_TOKEN`: توکن ربات تلگرام
 - `API_BASE_URL`: آدرس API بک‌اند برای ربات
+  در حالت استفاده از Docker Compose مقدار پیشنهادی `http://backend:8000` است.
 - `DOWNLOAD_DOMAIN`: دامنه‌ای که به کاربر برای دانلود نشان داده می‌شود
 - `SUBSCRIPTION_REMINDER_DAYS`: تعداد روزهای مانده به انقضای اشتراک که یادآوری ارسال می‌شود
 - `REQUIRED_CHANNEL`: شناسه یا یوزرنیم کانالی که عضویت در آن برای استفاده از ربات الزامی است
