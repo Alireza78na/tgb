@@ -8,8 +8,18 @@ from datetime import datetime, timedelta
 from app.models.subscription import SubscriptionPlan
 import requests
 
-async def check_active_subscription(user_id: str):
-    async with async_session() as session:
+async def check_active_subscription(user_id: str, db: AsyncSession | None = None):
+    """Ensure the user has an active subscription.
+
+    A database session can be provided to avoid opening a new one for each
+    check.  When omitted, a temporary session is created.
+    """
+    close_session = False
+    session = db
+    if session is None:
+        session = async_session()
+        close_session = True
+    try:
         result = await session.execute(
             select(UserSubscription)
             .options(selectinload(UserSubscription.plan))
@@ -70,12 +80,21 @@ async def check_active_subscription(user_id: str):
                     pass
 
             raise HTTPException(status_code=403, detail="اشتراک شما منقضی شده است")
+    finally:
+        if close_session:
+            await session.close()
 
 from app.models.file import File
 from app.models.subscription import SubscriptionPlan
 
-async def check_user_limits(user_id: str, incoming_file_size: int):
-    async with async_session() as session:
+async def check_user_limits(user_id: str, incoming_file_size: int, db: AsyncSession | None = None):
+    """Validate user storage and file count limits."""
+    close_session = False
+    session = db
+    if session is None:
+        session = async_session()
+        close_session = True
+    try:
         # بررسی اشتراک فعال
         result = await session.execute(
             select(UserSubscription)
@@ -87,13 +106,9 @@ async def check_user_limits(user_id: str, incoming_file_size: int):
         if not sub or sub.end_date < datetime.utcnow():
             raise HTTPException(status_code=403, detail="اشتراک شما منقضی شده یا فعال نیست.")
 
-        # دریافت پلن مربوطه
         plan = sub.plan
 
-        # مجموع حجم فایل‌های آپلودشده
-        result = await session.execute(
-            select(File).where(File.user_id == user_id)
-        )
+        result = await session.execute(select(File).where(File.user_id == user_id))
         files = result.scalars().all()
         total_size = sum(f.file_size for f in files)
         total_count = len(files)
@@ -103,3 +118,6 @@ async def check_user_limits(user_id: str, incoming_file_size: int):
             (plan.max_files and total_count >= plan.max_files)
         ):
             raise HTTPException(status_code=403, detail="شما به محدودیت حجم یا تعداد فایل رسیده‌اید.")
+    finally:
+        if close_session:
+            await session.close()
