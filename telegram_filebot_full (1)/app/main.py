@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.db import engine, Base
 from app.api import routes_user, routes_file, routes_admin
@@ -21,3 +22,9 @@ async def on_startup() -> None:
 app.include_router(routes_user.router, prefix="/user", tags=["User"])
 app.include_router(routes_file.router, prefix="/file", tags=["File"])
 app.include_router(routes_admin.router, prefix="/admin", tags=["Admin"])
+
+
+@app.get("/")
+async def read_root() -> JSONResponse:
+    """Simple welcome endpoint for the API root."""
+    return JSONResponse({"message": "Telegram FileBot API"})
