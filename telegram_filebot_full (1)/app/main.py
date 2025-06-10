@@ -10,8 +10,12 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# ایجاد جداول دیتابیس
-Base.metadata.create_all(bind=engine)
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    """Create database tables on application startup."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 # ثبت routeها
 app.include_router(routes_user.router, prefix="/user", tags=["User"])

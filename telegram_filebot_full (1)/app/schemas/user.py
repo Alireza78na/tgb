@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
 class UserCreate(BaseModel):
@@ -14,5 +14,4 @@ class UserOut(BaseModel):
     is_admin: bool
     is_blocked: bool
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
