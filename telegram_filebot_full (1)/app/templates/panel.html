@@ -1,18 +1,65 @@
 <!DOCTYPE html>
-<html>
+<html lang="fa" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>Admin Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>پنل مدیریت ربات فایل</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.rtl.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
-<h2>Server Metrics</h2>
-<canvas id="cpuChart" width="400" height="100"></canvas>
-<canvas id="memChart" width="400" height="100"></canvas>
-<canvas id="netChart" width="400" height="100"></canvas>
+<body class="bg-light p-3">
+<div class="container">
+    <h1 class="mb-4 text-center">پنل مدیریت ربات فایل</h1>
+    <div id="alertContainer"></div>
+    <div class="row mb-4">
+        <div class="col-md-4 mb-3">
+            <canvas id="cpuChart" height="200"></canvas>
+        </div>
+        <div class="col-md-4 mb-3">
+            <canvas id="memChart" height="200"></canvas>
+        </div>
+        <div class="col-md-4 mb-3">
+            <canvas id="netChart" height="200"></canvas>
+        </div>
+    </div>
+    <h3 class="mb-3">تنظیمات</h3>
+    <form id="settingsForm" class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label" for="BOT_TOKEN">توکن ربات</label>
+            <input type="password" class="form-control" id="BOT_TOKEN" name="BOT_TOKEN" value="{{settings['BOT_TOKEN']}}" required>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label" for="DOWNLOAD_DOMAIN">دامنه دانلود</label>
+            <input type="text" class="form-control" id="DOWNLOAD_DOMAIN" name="DOWNLOAD_DOMAIN" value="{{settings['DOWNLOAD_DOMAIN']}}">
+        </div>
+        <div class="col-md-6">
+            <label class="form-label" for="UPLOAD_DIR">پوشه آپلود</label>
+            <input type="text" class="form-control" id="UPLOAD_DIR" name="UPLOAD_DIR" value="{{settings['UPLOAD_DIR']}}">
+        </div>
+        <div class="col-md-6">
+            <label class="form-label" for="SUBSCRIPTION_REMINDER_DAYS">روزهای یادآوری</label>
+            <input type="number" class="form-control" id="SUBSCRIPTION_REMINDER_DAYS" name="SUBSCRIPTION_REMINDER_DAYS" value="{{settings['SUBSCRIPTION_REMINDER_DAYS']}}">
+        </div>
+        <div class="col-md-6">
+            <label class="form-label" for="ADMIN_IDS">شناسه مدیران</label>
+            <input type="text" class="form-control" id="ADMIN_IDS" name="ADMIN_IDS" value="{{settings.get('ADMIN_IDS','')}}">
+        </div>
+        <div class="col-md-6">
+            <label class="form-label" for="REQUIRED_CHANNEL">کانال اجباری</label>
+            <input type="text" class="form-control" id="REQUIRED_CHANNEL" name="REQUIRED_CHANNEL" value="{{settings.get('REQUIRED_CHANNEL','')}}">
+        </div>
+        <div class="col-12">
+            <button type="submit" class="btn btn-primary">ذخیره</button>
+        </div>
+    </form>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-let cpuData = [];
-let memData = [];
+function getToken() {
+    return sessionStorage.getItem('admin_token') ||
+           document.cookie.split('; ').find(r => r.startsWith('admin_token='))?.split('=')[1];
+}
+
 const cpuChart = new Chart(document.getElementById('cpuChart').getContext('2d'), {
     type: 'line',
     data: {labels: [], datasets: [{label: 'CPU %', data: []}]},
@@ -23,44 +70,57 @@ const memChart = new Chart(document.getElementById('memChart').getContext('2d'),
 });
 const netChart = new Chart(document.getElementById('netChart').getContext('2d'), {
     type: 'line',
-    data: {labels: [], datasets: [{label: 'Net Sent', data: []},{label:'Net Recv',data: []}]},
+    data: {labels: [], datasets: [{label: 'Net Sent', data: []}, {label:'Net Recv',data: []}]},
 });
+
 async function fetchMetrics() {
-    const resp = await fetch('/admin/metrics', {headers: {'X-Admin-Token': 'SuperSecretAdminToken123'}});
+    const resp = await fetch('/admin/metrics', {
+        headers: { 'Authorization': 'Bearer ' + getToken() }
+    });
     if (!resp.ok) return;
     const data = await resp.json();
     const t = new Date().toLocaleTimeString();
-    cpuChart.data.labels.push(t); cpuChart.data.datasets[0].data.push(data.cpu);
-    memChart.data.labels.push(t); memChart.data.datasets[0].data.push(data.memory);
+    cpuChart.data.labels.push(t);
+    cpuChart.data.datasets[0].data.push(data.cpu);
+    memChart.data.labels.push(t);
+    memChart.data.datasets[0].data.push(data.memory);
     netChart.data.labels.push(t);
     netChart.data.datasets[0].data.push(data.net_sent);
     netChart.data.datasets[1].data.push(data.net_recv);
-    cpuChart.update(); memChart.update();
+    cpuChart.update();
+    memChart.update();
     netChart.update();
 }
 setInterval(fetchMetrics, 3000);
-</script>
-<h2>Settings</h2>
-<form id="settingsForm">
-    <label>BOT_TOKEN <input name="BOT_TOKEN" value="{{settings['BOT_TOKEN']}}"></label><br>
-    <label>DOWNLOAD_DOMAIN <input name="DOWNLOAD_DOMAIN" value="{{settings['DOWNLOAD_DOMAIN']}}"></label><br>
-    <label>UPLOAD_DIR <input name="UPLOAD_DIR" value="{{settings['UPLOAD_DIR']}}"></label><br>
-    <label>SUBSCRIPTION_REMINDER_DAYS <input name="SUBSCRIPTION_REMINDER_DAYS" type="number" value="{{settings['SUBSCRIPTION_REMINDER_DAYS']}}"></label><br>
-    <label>ADMIN_IDS <input name="ADMIN_IDS" value="{{settings.get('ADMIN_IDS','')}}"></label><br>
-    <label>REQUIRED_CHANNEL <input name="REQUIRED_CHANNEL" value="{{settings.get('REQUIRED_CHANNEL','')}}"></label><br>
-    <button type="submit">Save</button>
-</form>
-<script>
+fetchMetrics();
+
+function showAlert(type, message) {
+    const container = document.getElementById('alertContainer');
+    const div = document.createElement('div');
+    div.className = `alert alert-${type}`;
+    div.textContent = message;
+    container.appendChild(div);
+    setTimeout(() => div.remove(), 3000);
+}
+
 document.getElementById('settingsForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
     const data = {};
     formData.forEach((v,k)=>data[k]=v);
-    await fetch('/admin/settings', {
+    const resp = await fetch('/admin/settings', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json','X-Admin-Token': 'SuperSecretAdminToken123'},
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + getToken()
+        },
         body: JSON.stringify(data)
     });
+    if (resp.ok) {
+        showAlert('success', 'تنظیمات ذخیره شد');
+    } else {
+        showAlert('danger', 'خطا در ذخیره تنظیمات');
+    }
 });
 </script>
 </body>
