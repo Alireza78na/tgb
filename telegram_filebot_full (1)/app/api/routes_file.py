@@ -21,8 +21,6 @@ from app.services.download_worker import (
     is_blocked_extension,
     is_illegal_url,
 )
-from concurrent.futures import ThreadPoolExecutor
-import asyncio
 import logging
 from pathlib import Path
 from sqlalchemy.future import select
@@ -80,16 +78,13 @@ async def upload_file(
     await check_user_limits(user_id, file_data.file_size, db)
 
     if file_data.telegram_file_id:
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            storage_path = await loop.run_in_executor(
-                executor,
-                download_file_from_telegram,
-                file_data.telegram_file_id,
-                file_data.original_file_name,
-            )
-        if not storage_path:
+        result = await download_file_from_telegram(
+            file_data.telegram_file_id,
+            file_data.original_file_name,
+        )
+        if not result.success or not result.file_path:
             raise HTTPException(status_code=500, detail="Download failed")
+        storage_path = result.file_path
     else:
         storage_path = save_file_metadata(file_data.original_file_name)
 
@@ -132,17 +127,14 @@ async def upload_from_link(
     if is_blocked_extension(file_name):
         raise HTTPException(status_code=400, detail="نوع فایل مجاز نیست")
 
-    remote_size = get_remote_file_size(data.url)
+    remote_size = await get_remote_file_size(data.url)
     await check_active_subscription(user_id, db)
     await check_user_limits(user_id, remote_size, db)
 
-    loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor() as executor:
-        path = await loop.run_in_executor(
-            executor, download_file_from_url, data.url, file_name
-        )
-    if not path:
+    result = await download_file_from_url(data.url, file_name)
+    if not result.success or not result.file_path:
         raise HTTPException(status_code=500, detail="Download failed")
+    path = result.file_path
 
     file_size = os.path.getsize(path)
 
