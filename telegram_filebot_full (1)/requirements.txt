@@ -11,3 +11,5 @@ aiofiles
 psutil
 jinja2
 aiosqlite
+pyjwt
+passlib[bcrypt]

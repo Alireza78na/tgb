@@ -38,7 +38,7 @@ sudo bash setup.sh
    API_BASE_URL=http://backend:8000
    DOWNLOAD_DOMAIN=<دامنه یا IP سرور>
    ADMIN_IDS=<شناسه عددی ادمین‌ها با کاما>
-   ADMIN_API_TOKEN=SuperSecretAdminToken123
+  ADMIN_API_TOKEN=<توکن مخصوص ادمین>
    SUBSCRIPTION_REMINDER_DAYS=3
    REQUIRED_CHANNEL=<آیدی عددی یا یوزرنیم کانال الزامی>
    API_ID=<api id>
@@ -74,9 +74,9 @@ python app/bot.py
 مقدار `DOWNLOAD_DOMAIN` باید به دامنه‌ای که Nginx روی آن در حال سرویس‌دهی است اشاره کند.
 
 ## 🔐 احراز هویت ادمین
-همه routeهای `/admin/` نیازمند header زیر هستند:
+همه routeهای `/admin/` نیازمند هدر احراز هویت Bearer هستند:
 ```
-X-Admin-Token: SuperSecretAdminToken123
+Authorization: Bearer <توکن ادمین>
 ```
 
 ## 📦 ساختار
