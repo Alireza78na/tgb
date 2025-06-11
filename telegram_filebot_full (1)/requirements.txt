@@ -13,3 +13,4 @@ jinja2
 aiosqlite
 pyjwt
 passlib[bcrypt]
+cryptography
