@@ -17,3 +17,4 @@ cryptography
 aioredis
 alembic
 user-agents
+validators
