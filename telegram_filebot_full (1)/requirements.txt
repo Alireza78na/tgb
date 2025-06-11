@@ -14,3 +14,4 @@ aiosqlite
 pyjwt
 passlib[bcrypt]
 cryptography
+aioredis
