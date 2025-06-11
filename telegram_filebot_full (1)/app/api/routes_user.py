@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from app.schemas.user import UserCreate, UserOut
-from app.schemas.subscription import UserSubscriptionDetail, SubscriptionPlanInfo
+from app.schemas.subscription import UserSubscriptionDetail
 from app.models.user import User
 from app.models.subscription import SubscriptionPlan
 from app.models.user_subscription import UserSubscription

@@ -1,4 +1,3 @@
-import asyncio
 import aiohttp
 import aiofiles
 import logging
@@ -270,7 +269,6 @@ class AdvancedDownloadWorker:
                     raise FileOperationError(f"Telegram API error: {result.get('description')}")
                 file_data = result["result"]
                 t_file_path = file_data["file_path"]
-                size = file_data.get("file_size", 0)
                 download_url = f"https://api.telegram.org/file/bot{self.cfg.BOT_TOKEN}/{t_file_path}"
                 if not filename:
                     filename = Path(t_file_path).name

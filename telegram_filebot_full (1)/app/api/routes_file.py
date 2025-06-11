@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address

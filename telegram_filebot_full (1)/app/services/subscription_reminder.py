@@ -559,7 +559,7 @@ async def scheduled_reminder_task() -> ReminderStats:
 
 async def send_reminder_report_to_admins(stats: ReminderStats) -> None:
     try:
-        message = (
+        _ = (
             f"""
 📊 **گزارش یادآوری اشتراک**
 
@@ -573,7 +573,7 @@ async def send_reminder_report_to_admins(stats: ReminderStats) -> None:
             + "\n".join([f"• {t.value}: {c}" for t, c in stats.by_type.items()])
         )
         # Implementation for sending admin notifications should be added here.
-        # await send_admin_notification(message)
+        # await send_admin_notification(_message)
     except Exception as exc:  # pragma: no cover - log errors
         logger.error("Failed to send reminder report: %s", exc)
 

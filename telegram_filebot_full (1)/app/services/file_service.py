@@ -236,13 +236,8 @@ class AdvancedFileService:
                 elif file_type == FileType.VIDEO:
                     metadata = await FileMetadataExtractor.extract_video_metadata(file_path)
             compressed_path = None
-            compression_ratio = 0.0
             if compress and file_type in [FileType.IMAGE, FileType.DOCUMENT]:
                 compressed_path = await self._compress_file(file_path)
-                if compressed_path:
-                    original_size = file_path.stat().st_size
-                    compressed_size = compressed_path.stat().st_size
-                    compression_ratio = (1 - compressed_size / original_size) * 100
             file_record = File(
                 user_id=user_id,
                 original_file_name=file_path.name,

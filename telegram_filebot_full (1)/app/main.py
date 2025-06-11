@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import uvicorn
-from fastapi import FastAPI, Request, Response, status, HTTPException
+from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -27,7 +27,7 @@ from app.core.rate_limiting import RateLimiter
 
 from app.api import routes_user, routes_file, routes_admin
 from app.services.task_queue import start_task_queue, stop_task_queue
-from app.services.cleanup import cleanup_service, scheduled_cleanup
+from app.services.cleanup import scheduled_cleanup
 from app.services.subscription_reminder import scheduled_reminder_task
 
 logger = get_logger(__name__)
