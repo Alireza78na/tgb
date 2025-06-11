@@ -18,3 +18,5 @@ aioredis
 alembic
 user-agents
 validators
+python-magic
+Pillow
