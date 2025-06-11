@@ -27,6 +27,7 @@ from app.models.subscription import SubscriptionPlan
 from app.models.user import User
 from app.models.user_subscription import UserSubscription
 from app.schemas.file import FileOut
+from app.core.config import BOT_TOKEN
 from app.schemas.subscription import (
     UserSubscriptionCreate,
     UserSubscriptionOut,
@@ -158,9 +159,6 @@ async def create_subscription(
     await db.refresh(new_subscription)
     return new_subscription
 
-from app.models.file import File
-from app.schemas.file import FileOut
-
 @router.get("/user/{user_id}/files", response_model=List[FileOut])
 async def list_user_files(
     request: Request,
@@ -170,8 +168,6 @@ async def list_user_files(
     result = await db.execute(select(File).where(File.user_id == user_id))
     files = result.scalars().all()
     return files
-
-from app.schemas.subscription import UserSubscriptionOut
 
 @router.get("/user/{user_id}/subscription", response_model=UserSubscriptionOut)
 async def get_user_subscription(
@@ -308,9 +304,6 @@ async def cancel_subscription(
     sub.is_active = False
     await db.commit()
     return {"detail": "subscription cancelled"}
-
-
-from app.core.config import BOT_TOKEN
 
 
 @router.post("/broadcast")

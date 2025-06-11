@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, String, DateTime, Boolean, ForeignKey, Integer,
-    Index, CheckConstraint, UniqueConstraint, Text, BigInteger,
+    Index, CheckConstraint, UniqueConstraint, Text,
     Enum as SQLEnum
 )
 from sqlalchemy.orm import relationship, validates

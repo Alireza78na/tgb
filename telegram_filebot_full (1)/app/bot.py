@@ -11,7 +11,6 @@ from telegram.ext import (
 )
 import os
 import aiohttp
-import asyncio
 
 
 async def api_request(method: str, endpoint: str, *, headers=None, json=None, params=None) -> tuple[int, dict | None]:
@@ -172,7 +171,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text("⚠️ خطا در ثبت فایل.")
-    except Exception as e:
+    except Exception:
         await update.message.reply_text("❌ خطا در ارتباط با سرور.")
     finally:
         active_downloads[update.effective_user.id].remove(task)

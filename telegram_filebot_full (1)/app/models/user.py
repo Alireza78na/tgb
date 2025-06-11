@@ -6,7 +6,6 @@ from sqlalchemy import (
     DateTime,
     BigInteger,
     Text,
-    JSON,
     Index,
     CheckConstraint,
     UniqueConstraint,
@@ -20,7 +19,6 @@ from enum import Enum
 from typing import Optional, Dict, Any, List
 import uuid
 import re
-import hashlib
 
 from app.core.db import Base
 from app.core.exceptions import ValidationError
