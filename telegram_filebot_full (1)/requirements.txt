@@ -16,3 +16,4 @@ passlib[bcrypt]
 cryptography
 aioredis
 alembic
+user-agents
