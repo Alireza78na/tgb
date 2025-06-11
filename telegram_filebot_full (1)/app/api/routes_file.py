@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, Request, HTTPException, status
+from fastapi import APIRouter, Depends, Request, HTTPException, status, Query
 from fastapi.responses import Response
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import async_session
 from app.schemas.file import FileCreate, FileOut, FileLinkCreate
@@ -9,6 +11,8 @@ from app.core.subscription_guard import (
     check_user_limits,
 )
 from app.core.user_guard import ensure_not_blocked
+from app.core.auth import get_current_user
+from app.core.exceptions import FileOperationError
 from app.services.file_service import save_file_metadata
 from app.services.download_worker import (
     download_file_from_url,
@@ -17,7 +21,12 @@ from app.services.download_worker import (
     is_blocked_extension,
     is_illegal_url,
 )
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+import logging
+from pathlib import Path
 from sqlalchemy.future import select
+from sqlalchemy import func
 from typing import List
 import uuid
 from datetime import datetime
@@ -25,18 +34,42 @@ import os
 from app.core import config
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
+router.state.limiter = limiter
+logger = logging.getLogger(__name__)
 
 async def get_db():
     async with async_session() as session:
         yield session
 
-@router.post("/upload", response_model=FileOut)
-async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession = Depends(get_db)):
-    """Save file metadata for the authenticated user."""
-    user_id = request.headers.get("X-User-Id")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="X-User-Id header missing")
 
+async def safe_file_deletion(file_path: str, file_id: str) -> bool:
+    """Delete a file from disk with detailed logging."""
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"Successfully deleted file: {file_id}")
+            return True
+        logger.warning(f"File not found for deletion: {file_id}")
+        return True
+    except PermissionError as e:
+        logger.error(f"Permission denied deleting file {file_id}: {e}")
+        raise FileOperationError("فایل قابل حذف نیست - مشکل دسترسی")
+    except OSError as e:
+        logger.error(f"OS error deleting file {file_id}: {e}")
+        raise FileOperationError("خطا در حذف فایل از سیستم")
+    except Exception as e:
+        logger.error(f"Unexpected error deleting file {file_id}: {e}")
+        raise FileOperationError("خطای غیرمنتظره در حذف فایل")
+
+@router.post("/upload", response_model=FileOut)
+@limiter.limit("10/minute")
+async def upload_file(
+    file_data: FileCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
+    """Save file metadata for the authenticated user."""
     await ensure_not_blocked(user_id)
 
     if is_blocked_extension(file_data.original_file_name):
@@ -47,10 +80,14 @@ async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession 
     await check_user_limits(user_id, file_data.file_size, db)
 
     if file_data.telegram_file_id:
-        storage_path = download_file_from_telegram(
-            file_data.telegram_file_id,
-            file_data.original_file_name,
-        )
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            storage_path = await loop.run_in_executor(
+                executor,
+                download_file_from_telegram,
+                file_data.telegram_file_id,
+                file_data.original_file_name,
+            )
         if not storage_path:
             raise HTTPException(status_code=500, detail="Download failed")
     else:
@@ -81,12 +118,13 @@ async def upload_file(file_data: FileCreate, request: Request, db: AsyncSession 
 
 
 @router.post("/upload_link", response_model=FileOut)
-async def upload_from_link(data: FileLinkCreate, request: Request, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def upload_from_link(
+    data: FileLinkCreate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
     """Download a file from a URL and register it for the authenticated user."""
-    user_id = request.headers.get("X-User-Id")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="X-User-Id header missing")
-
     if is_illegal_url(data.url):
         raise HTTPException(status_code=400, detail="لینک غیرمجاز است")
 
@@ -98,7 +136,11 @@ async def upload_from_link(data: FileLinkCreate, request: Request, db: AsyncSess
     await check_active_subscription(user_id, db)
     await check_user_limits(user_id, remote_size, db)
 
-    path = download_file_from_url(data.url, file_name)
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor() as executor:
+        path = await loop.run_in_executor(
+            executor, download_file_from_url, data.url, file_name
+        )
     if not path:
         raise HTTPException(status_code=500, detail="Download failed")
 
@@ -128,24 +170,65 @@ async def upload_from_link(data: FileLinkCreate, request: Request, db: AsyncSess
     return new_file
 
 
-@router.get("/list", response_model=list[FileOut])
-async def list_files(request: Request, db: AsyncSession = Depends(get_db)):
-    """List all files of the authenticated user."""
-    user_id = request.headers.get("X-User-Id")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="X-User-Id header missing")
+@router.get("/list", response_model=dict)
+async def list_files(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    search: str | None = Query(None, description="Search in filename"),
+    file_type: str | None = Query(None, description="Filter by file extension"),
+    sort_by: str | None = Query("created_at", description="Sort field"),
+    sort_order: str | None = Query("desc", regex="^(asc|desc)$"),
+):
+    offset = (page - 1) * limit
 
-    result = await db.execute(select(File).where(File.user_id == user_id))
-    files = result.scalars().all()
-    return files
+    query = select(File).where(File.user_id == user_id)
+    count_query = select(func.count(File.id)).where(File.user_id == user_id)
+
+    if search:
+        search_filter = File.original_file_name.ilike(f"%{search}%")
+        query = query.where(search_filter)
+        count_query = count_query.where(search_filter)
+
+    if file_type:
+        ext_filter = File.original_file_name.ilike(f"%.{file_type}")
+        query = query.where(ext_filter)
+        count_query = count_query.where(ext_filter)
+
+    if sort_by in ["created_at", "file_size", "original_file_name"]:
+        sort_column = getattr(File, sort_by)
+        if sort_order == "desc":
+            query = query.order_by(sort_column.desc())
+        else:
+            query = query.order_by(sort_column.asc())
+
+    query = query.offset(offset).limit(limit)
+
+    files_result = await db.execute(query)
+    count_result = await db.execute(count_query)
+
+    files = files_result.scalars().all()
+    total_count = count_result.scalar()
+
+    return {
+        "files": files,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total_count,
+            "pages": (total_count + limit - 1) // limit,
+        },
+    }
 
 
 @router.delete("/delete/{file_id}")
-async def delete_file(file_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def delete_file(
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
     """Delete a file if it belongs to the authenticated user."""
-    user_id = request.headers.get("X-User-Id")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="X-User-Id header missing")
 
     result = await db.execute(select(File).where(File.id == file_id))
     file = result.scalars().first()
@@ -154,13 +237,11 @@ async def delete_file(file_id: str, request: Request, db: AsyncSession = Depends
     if file.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
 
-    # Remove from filesystem if exists
     try:
-        if os.path.exists(file.storage_path):
-            os.remove(file.storage_path)
-    except Exception as e:
-        # Log removal failure but continue deleting DB record
-        print(f"[✘] Failed to remove file {file.storage_path}: {e}")
+        await safe_file_deletion(file.storage_path, file_id)
+    except FileOperationError as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
     await db.delete(file)
     await db.commit()
@@ -168,12 +249,12 @@ async def delete_file(file_id: str, request: Request, db: AsyncSession = Depends
 
 
 @router.post("/delete_bulk")
-async def delete_bulk(file_ids: List[str], request: Request, db: AsyncSession = Depends(get_db)):
+async def delete_bulk(
+    file_ids: List[str],
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
     """Delete multiple files of the authenticated user."""
-    user_id = request.headers.get("X-User-Id")
-    if not user_id:
-        raise HTTPException(status_code=400, detail="X-User-Id header missing")
-
     await ensure_not_blocked(user_id)
     result = await db.execute(select(File).where(File.id.in_(file_ids)))
     files = result.scalars().all()
@@ -182,9 +263,8 @@ async def delete_bulk(file_ids: List[str], request: Request, db: AsyncSession = 
         if f.user_id != user_id:
             continue
         try:
-            if os.path.exists(f.storage_path):
-                os.remove(f.storage_path)
-        except Exception:
+            await safe_file_deletion(f.storage_path, f.id)
+        except FileOperationError:
             pass
         await db.delete(f)
         deleted += 1
@@ -193,10 +273,11 @@ async def delete_bulk(file_ids: List[str], request: Request, db: AsyncSession = 
 
 
 @router.post("/regenerate/{file_id}", response_model=FileOut)
-async def regenerate_link(file_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    user_id = request.headers.get("X-User-Id")
-    if not user_id:
-        raise HTTPException(status_code=400, detail="X-User-Id header missing")
+async def regenerate_link(
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
 
     await ensure_not_blocked(user_id)
 
@@ -216,11 +297,13 @@ async def regenerate_link(file_id: str, request: Request, db: AsyncSession = Dep
 
 
 @router.get("/download/{file_id}/{token}")
-async def download_file(file_id: str, token: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def download_file(
+    file_id: str,
+    token: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
     """Secure file download for owner only."""
-    user_id = request.headers.get("X-User-Id")
-    if not user_id:
-        raise HTTPException(status_code=400, detail="X-User-Id header missing")
     result = await db.execute(select(File).where(File.id == file_id))
     file = result.scalars().first()
     if not file or file.download_token != token:
@@ -228,10 +311,22 @@ async def download_file(file_id: str, token: str, request: Request, db: AsyncSes
     if file.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not allowed")
 
-    internal_path = os.path.relpath(file.storage_path, config.UPLOAD_DIR)
+    try:
+        safe_path = Path(config.UPLOAD_DIR).resolve()
+        file_path = Path(file.storage_path).resolve()
+        if not str(file_path).startswith(str(safe_path)):
+            raise HTTPException(status_code=403, detail="Access denied")
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found on disk")
+    except (OSError, ValueError) as e:
+        logger.error(f"Path validation error: {e}")
+        raise HTTPException(status_code=500, detail="Path validation failed")
+
+    internal_path = file_path.relative_to(safe_path)
     response = Response()
     response.headers["X-Accel-Redirect"] = f"/protected/{internal_path}"
     response.headers["Content-Disposition"] = (
         f"attachment; filename=\"{file.original_file_name}\""
     )
+    response.headers["Content-Type"] = "application/octet-stream"
     return response
