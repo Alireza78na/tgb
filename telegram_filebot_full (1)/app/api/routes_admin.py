@@ -1,12 +1,32 @@
-from fastapi import APIRouter, Depends, Request, HTTPException
-import requests
+import asyncio
+import logging
 import os
-from app.core.auth import verify_admin_token
+import uuid
+from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, Field, validator
+
+import aiohttp
+import psutil
+from fastapi import APIRouter, Depends, Request, HTTPException, Query
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from app.core import config as core_config
+from app.core.auth import verify_admin_token
 from app.core.db import async_session
-from app.models.user import User
+from app.core.settings_manager import SettingsManager
+from app.models.file import File
 from app.models.subscription import SubscriptionPlan
+from app.models.user import User
 from app.models.user_subscription import UserSubscription
+from app.schemas.file import FileOut
 from app.schemas.subscription import (
     UserSubscriptionCreate,
     UserSubscriptionOut,
@@ -14,18 +34,31 @@ from app.schemas.subscription import (
     SubscriptionPlanUpdate,
     SubscriptionPlanOut,
 )
-from sqlalchemy.future import select
-from typing import List
 
-import uuid
-from datetime import datetime
-import psutil
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from app.core.settings_manager import SettingsManager
-from app.core import config as core_config
+logger = logging.getLogger(__name__)
+
+
+class SettingsUpdate(BaseModel):
+    BOT_TOKEN: Optional[str] = Field(None, min_length=10)
+    DOWNLOAD_DOMAIN: Optional[str] = Field(None, regex=r"^https?://")
+    UPLOAD_DIR: Optional[str] = None
+    SUBSCRIPTION_REMINDER_DAYS: Optional[int] = Field(None, ge=1, le=30)
+    ADMIN_IDS: Optional[str] = None
+    REQUIRED_CHANNEL: Optional[str] = None
+
+    @validator("ADMIN_IDS")
+    def validate_admin_ids(cls, v):
+        if v:
+            try:
+                ids = [int(uid) for uid in v.split(",") if uid.strip()]
+                return ",".join(map(str, ids))
+            except ValueError:
+                raise ValueError("Invalid admin IDs format")
+        return v
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
+router.state.limiter = limiter
 templates = Jinja2Templates(directory="app/templates")
 
 async def get_db():
@@ -39,11 +72,16 @@ async def create_plan(
     db: AsyncSession = Depends(get_db),
     auth: None = Depends(verify_admin_token),
 ):
-    plan = SubscriptionPlan(id=str(uuid.uuid4()), **data.dict())
-    db.add(plan)
-    await db.commit()
-    await db.refresh(plan)
-    return plan
+    try:
+        plan = SubscriptionPlan(id=str(uuid.uuid4()), **data.dict())
+        db.add(plan)
+        await db.commit()
+        await db.refresh(plan)
+        return plan
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to create plan: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create plan")
 
 
 @router.put("/plan/{plan_id}", response_model=SubscriptionPlanOut)
@@ -141,12 +179,17 @@ async def get_user_subscription(
     user_id: str,
     db: AsyncSession = Depends(get_db),
     auth: None = Depends(verify_admin_token)):
+    # Verify that the user exists before checking subscription
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    if not user_result.scalars().first():
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+
     result = await db.execute(
         select(UserSubscription).where(UserSubscription.user_id == user_id)
     )
     sub = result.scalars().first()
     if not sub:
-        raise HTTPException(status_code=404, detail="اشتراک پیدا نشد.")
+        raise HTTPException(status_code=404, detail="اشتراک فعالی برای این کاربر یافت نشد")
     return sub
 
 
@@ -182,17 +225,35 @@ async def unblock_user(
 
 @router.get("/users")
 async def list_users(
-    q: str | None = None,
+    q: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     auth: None = Depends(verify_admin_token),
 ):
+    offset = (page - 1) * limit
     query = select(User)
     if q:
         like = f"%{q}%"
         query = query.where((User.username.ilike(like)) | (User.full_name.ilike(like)))
+
+    total_query = select(func.count(User.id))
+    if q:
+        total_query = total_query.where((User.username.ilike(like)) | (User.full_name.ilike(like)))
+    total_result = await db.execute(total_query)
+    total = total_result.scalar()
+
+    query = query.offset(offset).limit(limit)
     result = await db.execute(query)
     users = result.scalars().all()
-    return users
+
+    return {
+        "users": users,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": (total + limit - 1) // limit,
+    }
 
 
 @router.get("/files")
@@ -223,8 +284,10 @@ async def admin_delete_file(
     try:
         if os.path.exists(file.storage_path):
             os.remove(file.storage_path)
-    except Exception:
-        pass
+    except OSError as e:
+        logger.error(f"Failed to delete file {file.storage_path}: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error during file deletion: {e}")
     await db.delete(file)
     await db.commit()
     return {"detail": "deleted"}
@@ -251,19 +314,35 @@ from app.core.config import BOT_TOKEN
 
 
 @router.post("/broadcast")
-async def broadcast(message: str, db: AsyncSession = Depends(get_db), auth: None = Depends(verify_admin_token)):
+@limiter.limit("1/minute")
+async def broadcast(
+    message: str,
+    db: AsyncSession = Depends(get_db),
+    auth: None = Depends(verify_admin_token),
+):
     result = await db.execute(select(User.telegram_id))
     ids = [row[0] for row in result.all()]
-    for tid in ids:
+
+    async def send_message(session: aiohttp.ClientSession, chat_id: int):
         try:
-            requests.post(
+            async with session.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                data={"chat_id": tid, "text": message},
-                timeout=10,
-            )
-        except Exception:
-            pass
-    return {"sent": len(ids)}
+                data={"chat_id": chat_id, "text": message},
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                return await response.json()
+        except Exception as e:
+            logger.warning(f"Failed to send message to {chat_id}: {e}")
+            return None
+
+    async with aiohttp.ClientSession() as session:
+        tasks = [send_message(session, tid) for tid in ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    successful = sum(
+        1 for r in results if r and isinstance(r, dict) and r.get("ok")
+    )
+    return {"sent": successful, "total": len(ids)}
 
 
 @router.get("/metrics")
@@ -285,12 +364,23 @@ async def admin_panel(request: Request, auth: None = Depends(verify_admin_token)
 
 
 @router.post("/settings")
-async def update_settings(data: dict, auth: None = Depends(verify_admin_token)):
-    updated = SettingsManager.update(data)
+async def update_settings(
+    data: SettingsUpdate,
+    auth: None = Depends(verify_admin_token),
+):
+    updated = SettingsManager.update(data.dict(exclude_unset=True))
     core_config.BOT_TOKEN = updated.get("BOT_TOKEN", core_config.BOT_TOKEN)
     core_config.DOWNLOAD_DOMAIN = updated.get("DOWNLOAD_DOMAIN", core_config.DOWNLOAD_DOMAIN)
     core_config.UPLOAD_DIR = updated.get("UPLOAD_DIR", core_config.UPLOAD_DIR)
-    core_config.SUBSCRIPTION_REMINDER_DAYS = int(updated.get("SUBSCRIPTION_REMINDER_DAYS", core_config.SUBSCRIPTION_REMINDER_DAYS))
-    core_config.ADMIN_IDS = {int(uid) for uid in str(updated.get("ADMIN_IDS", "")).split(",") if uid}
-    core_config.REQUIRED_CHANNEL = updated.get("REQUIRED_CHANNEL", core_config.REQUIRED_CHANNEL)
+    core_config.SUBSCRIPTION_REMINDER_DAYS = int(
+        updated.get("SUBSCRIPTION_REMINDER_DAYS", core_config.SUBSCRIPTION_REMINDER_DAYS)
+    )
+    core_config.ADMIN_IDS = {
+        int(uid)
+        for uid in str(updated.get("ADMIN_IDS", "")).split(",")
+        if uid
+    }
+    core_config.REQUIRED_CHANNEL = updated.get(
+        "REQUIRED_CHANNEL", core_config.REQUIRED_CHANNEL
+    )
     return {"detail": "updated", "settings": updated}

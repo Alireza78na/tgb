@@ -5,6 +5,8 @@ asyncpg
 pydantic
 python-telegram-bot==20.3
 requests
+aiohttp
+slowapi
 aiofiles
 psutil
 jinja2
