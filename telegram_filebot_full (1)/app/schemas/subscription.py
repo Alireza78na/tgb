@@ -41,3 +41,27 @@ class SubscriptionPlanOut(BaseModel):
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SubscriptionPlanInfo(BaseModel):
+    id: str
+    name: str
+    max_storage_mb: int
+    max_files: int
+    expiry_days: Optional[int]
+    price: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserSubscriptionDetail(BaseModel):
+    id: str
+    plan: SubscriptionPlanInfo
+    start_date: datetime
+    end_date: datetime
+    is_active: bool
+    days_remaining: int
+    storage_used_mb: Optional[int] = 0
+    files_count: Optional[int] = 0
+
+    model_config = ConfigDict(from_attributes=True)
