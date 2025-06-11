@@ -10,10 +10,28 @@ from telegram.ext import (
     filters,
 )
 import os
-import requests
+import aiohttp
+import asyncio
 
 
-def get_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
+async def api_request(method: str, endpoint: str, *, headers=None, json=None, params=None) -> tuple[int, dict | None]:
+    """Perform an HTTP request using aiohttp and return status and JSON."""
+    url = f"{API_BASE_URL}{endpoint}"
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.request(method, url, headers=headers, json=json, params=params) as resp:
+                data = None
+                if resp.content_type == "application/json":
+                    try:
+                        data = await resp.json()
+                    except Exception:
+                        data = None
+                return resp.status, data
+        except Exception:
+            return 0, None
+
+
+async def get_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
     """Ensure the user is registered and return their backend ID."""
     if uid := context.user_data.get("user_id"):
         return uid
@@ -23,15 +41,13 @@ def get_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | Non
         "username": update.effective_user.username,
         "full_name": update.effective_user.full_name,
     }
-    try:
-        resp = requests.post(f"{API_BASE_URL}/user/register", json=payload)
-        if resp.status_code == 200:
-            uid = resp.json().get("id")
-            if uid:
-                context.user_data["user_id"] = uid
-                return uid
-    except Exception:
-        pass
+
+    status, data = await api_request("POST", "/user/register", json=payload)
+    if status == 200 and data:
+        uid = data.get("id")
+        if uid:
+            context.user_data["user_id"] = uid
+            return uid
     return None
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
@@ -93,7 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not await ensure_channel_member(update, context):
         return
-    uid = get_user_id(update, context)
+    uid = await get_user_id(update, context)
     if uid:
         await update.message.reply_text("✅ شما با موفقیت ثبت شدید!")
     else:
@@ -103,7 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await ensure_channel_member(update, context):
         return
-    uid = get_user_id(update, context)
+    uid = await get_user_id(update, context)
     if uid:
         await update.message.reply_text(f"ID شما: {uid}")
     else:
@@ -141,16 +157,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     try:
-        uid = get_user_id(update, context)
+        uid = await get_user_id(update, context)
         if not uid:
             await update.message.reply_text("⚠️ خطا در ثبت نام.")
             return
         headers = {"X-User-Id": uid}
         task = DownloadTask(chat_id=update.effective_chat.id, message_id=update.message.message_id)
         active_downloads[update.effective_user.id].append(task)
-        response = requests.post(f"{API_BASE_URL}/file/upload", json=payload, headers=headers)
-        if response.status_code == 200:
-            file_info = response.json()
+        status, data = await api_request("POST", "/file/upload", headers=headers, json=payload)
+        if status == 200 and data:
+            file_info = data
             await update.message.reply_text(
                 f"✅ لینک دانلود فایل شما: {file_info['direct_download_url']}"
             )
@@ -169,15 +185,15 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not await ensure_channel_member(update, context):
         return
-    uid = get_user_id(update, context)
+    uid = await get_user_id(update, context)
     if not uid:
         await update.message.reply_text("⚠️ خطا در ثبت نام.")
         return
     headers = {"X-User-Id": uid}
     try:
-        response = requests.get(f"{API_BASE_URL}/file/list", headers=headers)
-        if response.status_code == 200:
-            files = response.json()
+        status, data = await api_request("GET", "/file/list", headers=headers)
+        if status == 200 and data is not None:
+            files = data
             if not files:
                 await update.message.reply_text("📂 لیست فایل‌های شما خالی است.")
             else:
@@ -209,24 +225,24 @@ async def delete_file_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("استفاده: /delete <id1> <id2> ... یا /delete all")
         return
-    uid = get_user_id(update, context)
+    uid = await get_user_id(update, context)
     if not uid:
         await update.message.reply_text("⚠️ خطا در ثبت نام.")
         return
     headers = {"X-User-Id": uid}
     if context.args[0].lower() == "all":
-        list_resp = requests.get(f"{API_BASE_URL}/file/list", headers=headers)
-        if list_resp.status_code == 200:
-            ids = [f['id'] for f in list_resp.json()]
-            requests.post(f"{API_BASE_URL}/file/delete_bulk", json=ids, headers=headers)
+        status, data = await api_request("GET", "/file/list", headers=headers)
+        if status == 200 and data is not None:
+            ids = [f['id'] for f in data]
+            await api_request("POST", "/file/delete_bulk", headers=headers, json=ids)
             await update.message.reply_text("✅ همه فایل‌ها حذف شد")
         else:
             await update.message.reply_text("⚠️ خطا در دریافت لیست")
         return
 
     ids = context.args
-    resp = requests.post(f"{API_BASE_URL}/file/delete_bulk", json=ids, headers=headers)
-    if resp.status_code == 200:
+    status, _ = await api_request("POST", "/file/delete_bulk", headers=headers, json=ids)
+    if status == 200:
         await update.message.reply_text("✅ عملیات حذف انجام شد")
     else:
         await update.message.reply_text("⚠️ خطا در حذف فایل‌ها")
@@ -245,26 +261,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             t.cancel = True
     elif data.startswith("del:"):
         file_id = data.split(":", 1)[1]
-        uid = get_user_id(update, context)
+        uid = await get_user_id(update, context)
         if not uid:
             await query.edit_message_text("⚠️ خطا در ثبت نام")
             return
         headers = {"X-User-Id": uid}
-        resp = requests.delete(f"{API_BASE_URL}/file/delete/{file_id}", headers=headers)
-        if resp.status_code == 200:
+        status, _ = await api_request("DELETE", f"/file/delete/{file_id}", headers=headers)
+        if status == 200:
             await query.edit_message_text("✅ فایل حذف شد")
         else:
             await query.edit_message_text("⚠️ خطا در حذف فایل")
     elif data.startswith("regen:"):
         file_id = data.split(":", 1)[1]
-        uid = get_user_id(update, context)
+        uid = await get_user_id(update, context)
         if not uid:
             await query.edit_message_text("⚠️ خطا در ثبت نام")
             return
         headers = {"X-User-Id": uid}
-        resp = requests.post(f"{API_BASE_URL}/file/regenerate/{file_id}", headers=headers)
-        if resp.status_code == 200:
-            info = resp.json()
+        status, info = await api_request("POST", f"/file/regenerate/{file_id}", headers=headers)
+        if status == 200 and info:
             await query.edit_message_text(f"🔗 لینک جدید: {info['direct_download_url']}")
         else:
             await query.edit_message_text("⚠️ خطا در ایجاد لینک جدید")
@@ -272,9 +287,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         action = data.split(":", 1)[1]
         admin_headers = {"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")}
         if action == "plans":
-            resp = requests.get(f"{API_BASE_URL}/admin/plan", headers=admin_headers)
-            if resp.status_code == 200:
-                plans = resp.json()
+            status, data = await api_request("GET", "/admin/plan", headers=admin_headers)
+            if status == 200 and data is not None:
+                plans = data
                 if not plans:
                     await query.message.reply_text("پلنی وجود ندارد")
                 for p in plans:
@@ -283,9 +298,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await query.message.reply_text("خطا در دریافت پلن‌ها")
         elif action == "users":
-            resp = requests.get(f"{API_BASE_URL}/admin/users", headers=admin_headers)
-            if resp.status_code == 200:
-                users = resp.json()
+            status, data = await api_request("GET", "/admin/users", headers=admin_headers)
+            if status == 200 and data is not None:
+                users = data
                 if not users:
                     await query.message.reply_text("کاربری یافت نشد")
                 for u in users[:10]:
@@ -316,24 +331,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("delplan:") and is_admin(update.effective_user.id):
         plan_id = data.split(":", 1)[1]
         admin_headers = {"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")}
-        resp = requests.delete(f"{API_BASE_URL}/admin/plan/{plan_id}", headers=admin_headers)
-        if resp.status_code == 200:
+        status, _ = await api_request("DELETE", f"/admin/plan/{plan_id}", headers=admin_headers)
+        if status == 200:
             await query.edit_message_text("پلن حذف شد")
         else:
             await query.edit_message_text("خطا در حذف پلن")
     elif data.startswith("blockuser:") and is_admin(update.effective_user.id):
         uid = data.split(":", 1)[1]
         admin_headers = {"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")}
-        resp = requests.post(f"{API_BASE_URL}/admin/user/block/{uid}", headers=admin_headers)
-        if resp.status_code == 200:
+        status, _ = await api_request("POST", f"/admin/user/block/{uid}", headers=admin_headers)
+        if status == 200:
             await query.edit_message_text("کاربر مسدود شد")
         else:
             await query.edit_message_text("خطا در عملیات")
     elif data.startswith("unblockuser:") and is_admin(update.effective_user.id):
         uid = data.split(":", 1)[1]
         admin_headers = {"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")}
-        resp = requests.post(f"{API_BASE_URL}/admin/user/unblock/{uid}", headers=admin_headers)
-        if resp.status_code == 200:
+        status, _ = await api_request("POST", f"/admin/user/unblock/{uid}", headers=admin_headers)
+        if status == 200:
             await query.edit_message_text("کاربر آزاد شد")
         else:
             await query.edit_message_text("خطا در عملیات")
@@ -359,7 +374,7 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ فرمت فایل مجاز نیست.")
         return
     payload = {"url": url, "file_name": file_name}
-    uid = get_user_id(update, context)
+    uid = await get_user_id(update, context)
     if not uid:
         await update.message.reply_text("⚠️ خطا در ثبت نام.")
         return
@@ -376,9 +391,9 @@ async def upload_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     task = DownloadTask(chat_id=update.effective_chat.id, message_id=status_msg.message_id)
     active_downloads[update.effective_user.id].append(task)
     try:
-        response = requests.post(f"{API_BASE_URL}/file/upload_link", json=payload, headers=headers)
-        if response.status_code == 200 and not task.cancel:
-            file_info = response.json()
+        status, data = await api_request("POST", "/file/upload_link", headers=headers, json=payload)
+        if status == 200 and not task.cancel and data:
+            file_info = data
             await context.bot.edit_message_text(
                 chat_id=task.chat_id,
                 message_id=task.message_id,
@@ -413,15 +428,14 @@ async def my_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not await ensure_channel_member(update, context):
         return
-    uid = get_user_id(update, context)
+    uid = await get_user_id(update, context)
     if not uid:
         await update.message.reply_text("⚠️ خطا در ثبت نام.")
         return
     headers = {"X-User-Id": uid}
     try:
-        resp = requests.get(f"{API_BASE_URL}/user/subscription", headers=headers)
-        if resp.status_code == 200:
-            info = resp.json()
+        status, info = await api_request("GET", "/user/subscription", headers=headers)
+        if status == 200 and info is not None:
             text = f"پلن فعلی: {info['plan_name']}\nانقضا: {info['end_date']}"
             await update.message.reply_text(text)
         else:
@@ -451,8 +465,9 @@ async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     message = " ".join(context.args)
     await update.message.reply_text("در حال ارسال...")
-    requests.post(
-        f"{API_BASE_URL}/admin/broadcast",
+    await api_request(
+        "POST",
+        "/admin/broadcast",
         params={"message": message},
         headers={"X-Admin-Token": os.getenv("ADMIN_API_TOKEN", "SuperSecretAdminToken123")},
     )
