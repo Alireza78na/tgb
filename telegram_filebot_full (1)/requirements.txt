@@ -15,3 +15,4 @@ pyjwt
 passlib[bcrypt]
 cryptography
 aioredis
+alembic
