@@ -159,16 +159,18 @@ async def upload_from_link(
     )
 
 
+from app.models.file import FileType as FileTypeEnum
+
 @router.get("/list", response_model=dict)
 async def list_files(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    search: str | None = Query(None, description="Search in filename"),
-    file_type: str | None = Query(None, description="Filter by file extension"),
-    sort_by: str | None = Query("created_at", description="Sort field"),
-    sort_order: str | None = Query("desc", regex="^(asc|desc)$"),
+    search: str | None = Query(None, description="Search in filename", max_length=100),
+    file_type: Optional[FileTypeEnum] = Query(None, description="Filter by file type"),
+    sort_by: str | None = Query("created_at", description="Sort field", regex="^(created_at|file_size|original_file_name)$"),
+    sort_order: str | None = Query("desc", description="Sort order", regex="^(asc|desc)$"),
 ):
     offset = (page - 1) * limit
 
@@ -181,11 +183,10 @@ async def list_files(
         count_query = count_query.where(search_filter)
 
     if file_type:
-        ext_filter = File.original_file_name.ilike(f"%.{file_type}")
-        query = query.where(ext_filter)
-        count_query = count_query.where(ext_filter)
+        query = query.where(File.file_type == file_type)
+        count_query = count_query.where(File.file_type == file_type)
 
-    if sort_by in ["created_at", "file_size", "original_file_name"]:
+    if sort_by:
         sort_column = getattr(File, sort_by)
         if sort_order == "desc":
             query = query.order_by(sort_column.desc())
