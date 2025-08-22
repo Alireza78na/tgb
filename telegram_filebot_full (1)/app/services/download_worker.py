@@ -333,3 +333,73 @@ async def cleanup_download_worker() -> None:
     if _download_worker:
         await _download_worker.__aexit__(None, None, None)
         _download_worker = None
+
+
+# --- Task Queue Function ---
+import uuid
+from app.core.db import db_manager
+from app.models.file import File
+from app.core.subscription_guard import check_user_limits, check_active_subscription
+from app.core.exceptions import SubscriptionLimitExceededError, SubscriptionExpiredError
+
+async def process_download_from_url_task(
+    user_id: str, url: str, filename: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Task function to download a file from a URL, save it, and create a DB record.
+    This function is intended to be run by the AdvancedTaskQueue.
+    """
+    logger.info(f"Starting download task for user {user_id} from URL: {url}")
+    worker = await get_download_worker()
+
+    async with db_manager.get_session() as db:
+        try:
+            # 1. Check subscription and limits before starting the download
+            info = await worker.get_remote_file_info(url)
+            remote_size = info.get("size", 0)
+
+            await check_active_subscription(user_id, db)
+            await check_user_limits(user_id, remote_size, db)
+
+            # 2. Perform the download
+            result = await worker.download_from_url(url, filename)
+            if not result.success or not result.file_path:
+                raise FileOperationError(result.error or "Download failed")
+
+            # 3. Create file record in the database
+            file_id = str(uuid.uuid4())
+            token = uuid.uuid4().hex
+            direct_download_url = (
+                f"https://{config.DOWNLOAD_DOMAIN}/api/file/download/{file_id}/{token}"
+            )
+
+            new_file = File(
+                id=file_id,
+                user_id=user_id,
+                original_file_name=filename or Path(result.file_path).name,
+                file_size=result.file_size,
+                storage_path=result.file_path,
+                direct_download_url=direct_download_url,
+                download_token=token,
+                is_from_link=True,
+                original_link=url,
+                created_at=datetime.utcnow(),
+            )
+            db.add(new_file)
+            await db.commit()
+            await db.refresh(new_file)
+
+            logger.info(f"Successfully completed download task {new_file.id} for user {user_id}")
+
+            return {
+                "success": True,
+                "file_id": new_file.id,
+                "direct_download_url": new_file.direct_download_url,
+            }
+
+        except (SubscriptionLimitExceededError, SubscriptionExpiredError, SecurityError) as e:
+            logger.warning(f"Download task failed for user {user_id} due to policy violation: {e}")
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"Unhandled error in download task for user {user_id}: {e}", exc_info=True)
+            return {"success": False, "error": "An unexpected server error occurred."}

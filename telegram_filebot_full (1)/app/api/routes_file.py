@@ -15,12 +15,13 @@ from app.core.auth import get_current_user
 from app.core.exceptions import FileOperationError
 from app.services.file_service import save_file_metadata
 from app.services.download_worker import (
-    download_file_from_url,
     download_file_from_telegram,
     get_remote_file_size,
-    is_blocked_extension,
-    is_illegal_url,
+    process_download_from_url_task,
 )
+from app.services.download_worker import SecurityValidator
+from app.services.task_queue import task_queue, TaskConfig, TaskType
+from app.core.exceptions import SecurityError
 import logging
 from pathlib import Path
 from sqlalchemy.future import select
@@ -30,6 +31,7 @@ import uuid
 from datetime import datetime
 import os
 from app.core import config
+from fastapi.responses import JSONResponse
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -70,8 +72,9 @@ async def upload_file(
     """Save file metadata for the authenticated user."""
     await ensure_not_blocked(user_id)
 
-    if is_blocked_extension(file_data.original_file_name):
-        raise HTTPException(status_code=400, detail="نوع فایل مجاز نیست")
+    is_safe, reason = SecurityValidator.is_safe_filename(file_data.original_file_name)
+    if not is_safe:
+        raise HTTPException(status_code=400, detail=f"نوع فایل مجاز نیست: {reason}")
 
     # Subscription and quota checks before downloading
     await check_active_subscription(user_id, db)
@@ -112,54 +115,48 @@ async def upload_file(
     return new_file
 
 
-@router.post("/upload_link", response_model=FileOut)
+@router.post("/upload_link", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("5/minute")
 async def upload_from_link(
     data: FileLinkCreate,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
 ):
-    """Download a file from a URL and register it for the authenticated user."""
-    if is_illegal_url(data.url):
-        raise HTTPException(status_code=400, detail="لینک غیرمجاز است")
+    """Accepts a URL for download and queues it as a background task."""
+    is_safe_url, reason = SecurityValidator.is_safe_url(data.url)
+    if not is_safe_url:
+        raise HTTPException(status_code=400, detail=f"لینک غیرمجاز است: {reason}")
 
     file_name = data.file_name or data.url.split("/")[-1]
-    if is_blocked_extension(file_name):
-        raise HTTPException(status_code=400, detail="نوع فایل مجاز نیست")
+    is_safe_filename, reason = SecurityValidator.is_safe_filename(file_name)
+    if not is_safe_filename:
+        raise HTTPException(status_code=400, detail=f"نام فایل غیرمجاز است: {reason}")
 
-    remote_size = await get_remote_file_size(data.url)
-    await check_active_subscription(user_id, db)
-    await check_user_limits(user_id, remote_size, db)
+    try:
+        remote_size = await get_remote_file_size(data.url)
+        await check_active_subscription(user_id, db)
+        await check_user_limits(user_id, remote_size, db)
+    except (FileOperationError, SecurityError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    result = await download_file_from_url(data.url, file_name)
-    if not result.success or not result.file_path:
-        raise HTTPException(status_code=500, detail="Download failed")
-    path = result.file_path
-
-    file_size = os.path.getsize(path)
-
-    file_id = str(uuid.uuid4())
-    token = uuid.uuid4().hex
-    direct_download_url = (
-        f"https://{config.DOWNLOAD_DOMAIN}/api/file/download/{file_id}/{token}"
+    task_config = TaskConfig(
+        task_type=TaskType.FILE_DOWNLOAD,
+        max_retries=1,
+        timeout=3600,  # 1 hour
     )
 
-    new_file = File(
-        id=file_id,
+    task_id = await task_queue.add_task(
+        process_download_from_url_task,
         user_id=user_id,
-        original_file_name=file_name,
-        file_size=file_size,
-        storage_path=path,
-        direct_download_url=direct_download_url,
-        download_token=token,
-        is_from_link=True,
-        original_link=data.url,
-        created_at=datetime.utcnow(),
+        config=task_config,
+        url=data.url,
+        filename=file_name,
     )
-    db.add(new_file)
-    await db.commit()
-    await db.refresh(new_file)
-    return new_file
+
+    return JSONResponse(
+        content={"task_id": task_id, "message": "Download task accepted"},
+        status_code=status.HTTP_202_ACCEPTED,
+    )
 
 
 @router.get("/list", response_model=dict)

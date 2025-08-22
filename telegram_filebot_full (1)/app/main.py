@@ -25,7 +25,7 @@ from app.core.monitoring import setup_monitoring, MetricsCollector
 from app.core.security import SecurityMiddleware, setup_security_headers
 from app.core.rate_limiting import RateLimiter
 
-from app.api import routes_user, routes_file, routes_admin
+from app.api import routes_user, routes_file, routes_admin, routes_task
 from app.services.task_queue import start_task_queue, stop_task_queue
 from app.services.cleanup import scheduled_cleanup
 from app.services.subscription_reminder import scheduled_reminder_task
@@ -164,6 +164,7 @@ def setup_routes(app: FastAPI) -> None:
     app.include_router(routes_user.router, prefix="/user", tags=["User"])
     app.include_router(routes_file.router, prefix="/file", tags=["File"])
     app.include_router(routes_admin.router, prefix="/admin", tags=["Admin"])
+    app.include_router(routes_task.router, prefix="/task", tags=["Tasks"])
 
 
 def setup_rate_limiting(app: FastAPI) -> None:
