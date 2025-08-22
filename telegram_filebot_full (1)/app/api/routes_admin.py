@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.exc import IntegrityError
 
 from app.core import config as core_config
 from app.core.auth import verify_admin_token
@@ -79,6 +80,9 @@ async def create_plan(
         await db.commit()
         await db.refresh(plan)
         return plan
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="A plan with this name already exists.")
     except Exception as e:
         await db.rollback()
         logger.error(f"Failed to create plan: {e}")
@@ -221,7 +225,7 @@ async def unblock_user(
 
 @router.get("/users")
 async def list_users(
-    q: Optional[str] = None,
+    q: Optional[str] = Query(None, max_length=100),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -254,7 +258,7 @@ async def list_users(
 
 @router.get("/files")
 async def list_all_files(
-    q: str | None = None,
+    q: str | None = Query(None, max_length=100),
     db: AsyncSession = Depends(get_db),
     auth: None = Depends(verify_admin_token),
 ):

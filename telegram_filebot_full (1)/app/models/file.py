@@ -149,6 +149,9 @@ class File(Base):
         Index("idx_files_download_token", "download_token"),
         Index("idx_files_telegram_file_id", "telegram_file_id"),
         Index("idx_files_deleted_at", "deleted_at"),
+        # Indexes for sorting
+        Index("idx_files_user_size", "user_id", "file_size"),
+        Index("idx_files_user_name", "user_id", "original_file_name"),
     )
 
     @validates("original_file_name")
